@@ -1,27 +1,50 @@
 pragma solidity ^0.8.2;
 
-contract SelfDestruct {
+contract Kandle {
     
+    // Define token properties
+    uint public decimals = 18;
+    uint public totalSupply = 9 * 10**9 * 10 ** decimals;
+    string public name = "Kandle";
+    string public symbol = "KNDL";
+
+    // Manage token supply
+    uint private privateSaleAllowance = 12;
+    uint private publicSaleAllowance = 30;
+    uint private teamAllowance = 10;
+    uint private treasuryAllowance = 40;
+    uint private partnershipAllowance = 8; 
+    address public treasuryReceiver = 0x158d9359C28790cDcbA812428259fCa9388D92cD;
+    address public eaterAddress = 0x0000000000000000000000000000000000000000;
+
+    // Define collectors addresses
+    address public feesCollector = 0x5866f300771cAb38A8180ED1bC35a19ED3f223A7;
+    address public ashesCollector = 0x36f4de9BBbd72D84d2b6D53c2E79Bb879d37b6fa;
+    address public burnsCollector = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
+    address public rewardsCollector = 0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
+    address public fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
+
+    // Manage Admins
     address private superAdmin;
     mapping(address => bool) private admins;
     
-    mapping(address => uint) public balances;
-    mapping(address => mapping(address => uint)) public allowances;
+    // Manage token supply
+    mapping(address => uint256) public balances;
+    mapping(address => mapping(address => uint256)) public allowances;
     
-    uint public totalSupply = 1000000000000 * 10 ** 18;
-    string public name = "Self-destruct";
-    string public symbol = "SDST";
-    uint public decimals = 18;
+    // Manager users
+    mapping(address => bool) private blacklist;
     
+    // Manager events
     event Transfer(address indexed from, address indexed to, uint value);
     event Approval(address indexed owner, address indexed spender, uint value);
     
-    // Called only once when we deploy the smart contract
+    // Called only once when we first deploy the smart contract
     constructor() {
         superAdmin = msg.sender;
-        admins[msg.sender] = true;
         
-        balances[msg.sender] = totalSupply;
+        balances[treasuryReceiver] = totalSupply * treasuryAllowance / 100;
+        balances[msg.sender] = totalSupply * (privateSaleAllowance + publicSaleAllowance + teamAllowance + partnershipAllowance) / 100;
     }
 
     // Check if the calling address is the super admin
@@ -47,6 +70,18 @@ contract SelfDestruct {
         require(admins[target], 'Admin does not exist or already unregistered!');
         
         admins[target] = false;
+    }
+
+    // Check if user is blacklisted
+    function isBlacklisted(address target) public view returns(bool) {
+        return blacklist[target];
+    }
+
+    // Manage blacklist
+    function updateBlacklistState(address target, bool blacklisted) public {
+        require(isSuperAdmin(), 'Address is not allowed!');
+
+        blacklist[target] = blacklisted;
     }
     
     // view means the function is readonly and it can't modify data on the blockchain
