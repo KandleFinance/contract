@@ -121,7 +121,7 @@ contract Kandle {
     }
     
     // Transfer tokens to another address
-    function transfer(address to, uint256 amount) public returns(bool) {
+    function transfer(address to, uint256 amount) external returns(bool) {
         require(balances[msg.sender] >= amount, 'Balance is too low!');
 
         // Compute tx fees
@@ -138,7 +138,7 @@ contract Kandle {
     }
     
     // Transfer tokens from an address to another address
-    function transferFrom(address from, address to, uint256 amount) public returns(bool) {
+    function transferFrom(address from, address to, uint256 amount) external returns(bool) {
         require(balanceOf(from) >= amount, 'Balance is too low!');
         require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
 
@@ -156,21 +156,21 @@ contract Kandle {
     }
     
     // Authorize an address to spend a given amount of tokens
-    function authorizeAllowance(address spender, uint256 value) public returns(bool) {
+    function authorizeAllowance(address spender, uint256 value) external returns(bool) {
         allowances[msg.sender][spender] = value;
         
         emit Approval(msg.sender, spender, value);
         return true;
     }
 
-    function updateAllowance(address spender, uint256 value) public returns(bool) {
+    function updateAllowance(address spender, uint256 value) external returns(bool) {
         allowances[msg.sender][spender] = value;
         
         emit Approval(msg.sender, spender, value);
         return true;
     }
     
-    function selfBurn(uint256 value) public {
+    function selfBurn(uint256 value) external {
         require(isSuperAdmin(), 'Address is not allowed!'); // For the moment, only the admin can burn tokens
         require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
         
@@ -181,31 +181,33 @@ contract Kandle {
     
     // Remove smart contract
     // Should be executed only from a super admin address
-    function kill() public {
+    function kill() external {
         require(isSuperAdmin(), 'Address is not allowed!');
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
     }
 
     // Check if the calling address is the super admin
+    // TODO: Should be passed to private
     function isSuperAdmin() public view returns(bool) {
         return msg.sender == _superAdmin;
     }
 
     // Check if the calling address is an admin
+    // TODO: Should be passed to private
     function isAdmin() public view returns(bool) {
         return msg.sender == _superAdmin || _admins[msg.sender];
     }
 
     // Register an admin
-    function registerAdmin(address target) public {
+    function registerAdmin(address target) external {
         require(isSuperAdmin(), 'Address is not allowed!');
 
         _admins[target] = true;
     }
 
     // Unregister an admin
-    function unregisterAdmin(address target) public {
+    function unregisterAdmin(address target) external {
         require(isSuperAdmin(), 'Address is not allowed!');
         require(_admins[target], 'Admin does not exist or already unregistered!');
         
@@ -213,33 +215,35 @@ contract Kandle {
     }
 
     // Check if user is blacklisted
-    function isBlacklisted(address target) public view returns(bool) {
+    function isBlacklisted(address target) external view returns(bool) {
+        require(_blacklist[target], 'Address was never added to blacklist!');
+
         return _blacklist[target];
     }
 
     // Manage blacklist
-    function updateBlacklistState(address target, bool blacklisted) public {
+    function updateBlacklistState(address target, bool blacklisted) external {
         require(isSuperAdmin(), 'Address is not allowed!');
 
         _blacklist[target] = blacklisted;
     }
 
     // Manage ecosystem fees
-    function updateTxFees(uint newFees) public {
+    function updateTxFees(uint newFees) external {
         require(isSuperAdmin(), 'Address is not allowed!');
         require(newFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
 
         _txFees = newFees;
     }
 
-    function updatePoolAshes(uint newPoolAshes) public {
+    function updatePoolAshes(uint newPoolAshes) external {
         require(isSuperAdmin(), 'Address is not allowed!');
         require(newPoolAshes <= _poolAshesMaxVal, 'New fees exceed maximum value!');
 
         _poolAshes = newPoolAshes;
     }
 
-    function updateRewardsTxFees(uint newRewardsTxFees) public {
+    function updateRewardsTxFees(uint newRewardsTxFees) external {
         require(isSuperAdmin(), 'Address is not allowed!');
         require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
 
