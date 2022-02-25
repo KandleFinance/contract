@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Kandle
 pragma solidity ^0.8.2;
 
 library SafeMath {
@@ -68,11 +69,11 @@ contract Kandle {
     string public symbol = "KNDL";
 
     // Manage token supply
-    uint private constant privateSaleAllowance = 12;
-    uint private constant publicSaleAllowance = 30;
-    uint private constant teamAllowance = 10;
-    uint private constant treasuryAllowance = 40;
-    uint private constant partnershipAllowance = 8; 
+    uint private constant _privateSaleAllowance = 12;
+    uint private constant _publicSaleAllowance = 30;
+    uint private constant _teamAllowance = 10;
+    uint private constant _treasuryAllowance = 40;
+    uint private constant _partnershipAllowance = 8; 
     address public treasuryReceiver = 0x158d9359C28790cDcbA812428259fCa9388D92cD;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
 
@@ -84,15 +85,15 @@ contract Kandle {
     address public fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
 
     // Manage Admins
-    address private superAdmin;
-    mapping(address => bool) private admins;
+    address private _superAdmin;
+    mapping(address => bool) private _admins;
     
     // Manage token supply
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
     
     // Manager users
-    mapping(address => bool) private blacklist;
+    mapping(address => bool) private _blacklist;
     
     // Manager events
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -108,10 +109,10 @@ contract Kandle {
     
     // Called only once when we first deploy the smart contract
     constructor() {
-        superAdmin = msg.sender;
+        _superAdmin = msg.sender;
         
-        balances[treasuryReceiver] = totalSupply.mul(treasuryAllowance).div(100);
-        balances[msg.sender] = totalSupply.mul(privateSaleAllowance.add(publicSaleAllowance).add(teamAllowance).add(partnershipAllowance)).div(100);
+        balances[treasuryReceiver] = totalSupply.mul(_treasuryAllowance).div(100);
+        balances[msg.sender] = totalSupply.mul(_privateSaleAllowance.add(_publicSaleAllowance).add(_teamAllowance).add(_partnershipAllowance)).div(100);
     }
     
     // view means the function is readonly and it can't modify data on the blockchain
@@ -188,39 +189,39 @@ contract Kandle {
 
     // Check if the calling address is the super admin
     function isSuperAdmin() public view returns(bool) {
-        return msg.sender == superAdmin;
+        return msg.sender == _superAdmin;
     }
 
     // Check if the calling address is an admin
     function isAdmin() public view returns(bool) {
-        return msg.sender == superAdmin || admins[msg.sender];
+        return msg.sender == _superAdmin || _admins[msg.sender];
     }
 
     // Register an admin
     function registerAdmin(address target) public {
         require(isSuperAdmin(), 'Address is not allowed!');
 
-        admins[target] = true;
+        _admins[target] = true;
     }
 
     // Unregister an admin
     function unregisterAdmin(address target) public {
         require(isSuperAdmin(), 'Address is not allowed!');
-        require(admins[target], 'Admin does not exist or already unregistered!');
+        require(_admins[target], 'Admin does not exist or already unregistered!');
         
-        admins[target] = false;
+        _admins[target] = false;
     }
 
     // Check if user is blacklisted
     function isBlacklisted(address target) public view returns(bool) {
-        return blacklist[target];
+        return _blacklist[target];
     }
 
     // Manage blacklist
     function updateBlacklistState(address target, bool blacklisted) public {
         require(isSuperAdmin(), 'Address is not allowed!');
 
-        blacklist[target] = blacklisted;
+        _blacklist[target] = blacklisted;
     }
 
     // Manage ecosystem fees
