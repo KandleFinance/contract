@@ -68,20 +68,20 @@ contract Kandle {
     string public symbol = "KNDL";
 
     // Manage token supply
-    uint private privateSaleAllowance = 12;
-    uint private publicSaleAllowance = 30;
-    uint private teamAllowance = 10;
-    uint private treasuryAllowance = 40;
-    uint private partnershipAllowance = 8; 
+    uint private constant privateSaleAllowance = 12;
+    uint private constant publicSaleAllowance = 30;
+    uint private constant teamAllowance = 10;
+    uint private constant treasuryAllowance = 40;
+    uint private constant partnershipAllowance = 8; 
     address public treasuryReceiver = 0x158d9359C28790cDcbA812428259fCa9388D92cD;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
 
     // Define collectors addresses
-    address public feesCollectorAddress = 0x5866f300771cAb38A8180ED1bC35a19ED3f223A7;
-    address public ashesCollectorAddress = 0x36f4de9BBbd72D84d2b6D53c2E79Bb879d37b6fa;
-    address public burnsCollectorAddress = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
-    address public rewardsCollectorAddress = 0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
-    address public fuelCollectorAddress = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
+    address public feesCollector = 0x5866f300771cAb38A8180ED1bC35a19ED3f223A7;
+    address public ashesCollector = 0x36f4de9BBbd72D84d2b6D53c2E79Bb879d37b6fa;
+    address public burnsCollector = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
+    address public rewardsCollector = 0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
+    address public fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
 
     // Manage Admins
     address private superAdmin;
@@ -95,20 +95,16 @@ contract Kandle {
     mapping(address => bool) private blacklist;
     
     // Manager events
-    event Transfer(address indexed from, address indexed to, uint value);
-    event Approval(address indexed owner, address indexed spender, uint value);
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
 
     // Manage fees
-    uint private txFees = 10;
-    uint private poolQuota = 70; // Ashes
-    uint private rewardTxFees = 10;
-
-    // Burning process
-    mapping (address => uint256) private feesCollector;
-    mapping (address => uint256) private ashesCollector;
-    mapping (address => uint256) private burnsCollector;
-    mapping (address => uint256) private rewardsCollector;
-    mapping (address => uint256) private fuelCollector;
+    uint private constant _txFeesMaxVal = 10;
+    uint private constant _poolAshesMaxVal = 70;
+    uint private constant _rewardTxFeesMaxVal = 10;
+    uint private _txFees = 10;
+    uint private _poolAshes = 70;
+    uint private _rewardTxFees = 10;
     
     // Called only once when we first deploy the smart contract
     constructor() {
@@ -124,47 +120,66 @@ contract Kandle {
     }
     
     // Transfer tokens to another address
-    function transfer(address to, uint value) public returns(bool) {
-        require(balances[msg.sender] >= value, 'Balance is too low!');
+    function transfer(address to, uint256 amount) public returns(bool) {
+        require(balances[msg.sender] >= amount, 'Balance is too low!');
+
+        // Compute tx fees
+        uint256 txFeesAmount = amount.mul(_txFees).div(100);
+        uint256 reducedAmount = amount.sub(txFeesAmount);
         
-        balances[to] += value;
-        balances[msg.sender] -= value;
+        // Update balances
+        balances[feesCollector] += txFeesAmount;
+        balances[to] += reducedAmount;
+        balances[msg.sender] -= amount;
         
-        emit Transfer(msg.sender, to, value);
+        emit Transfer(msg.sender, to, amount);
         return true;
     }
     
     // Transfer tokens from an address to another address
-    function transferFrom(address from, address to, uint value) public returns(bool) {
-        require(balanceOf(from) >= value, 'Balance is too low!');
-        require(allowances[from][msg.sender] >= value, 'Address is not allowed!');
+    function transferFrom(address from, address to, uint256 amount) public returns(bool) {
+        require(balanceOf(from) >= amount, 'Balance is too low!');
+        require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
+
+        // Compute tx fees
+        uint256 txFeesAmount = amount.mul(_txFees).div(100);
+        uint256 reducedAmount = amount.sub(txFeesAmount);
         
-        balances[to] += value;
-        balances[from] -= value;
+        // Update balances
+        balances[feesCollector] += txFeesAmount;
+        balances[to] += reducedAmount;
+        balances[from] -= amount;
         
-        emit Transfer(from, to, value);
+        emit Transfer(from, to, amount);
         return true;
     }
     
     // Authorize an address to spend a given amount of tokens
-    function approve(address spender, uint value) public returns(bool) {
-        require(isAdmin(), 'Address is not allowed!');
+    function authorizeAllowance(address spender, uint256 value) public returns(bool) {
+        allowances[msg.sender][spender] = value;
+        
+        emit Approval(msg.sender, spender, value);
+        return true;
+    }
+
+    function updateAllowance(address spender, uint256 value) public returns(bool) {
         allowances[msg.sender][spender] = value;
         
         emit Approval(msg.sender, spender, value);
         return true;
     }
     
-    // Remove an amount of tokens from the total supply
-    function burn(uint value) public {
-        require(isAdmin(), 'Address is not allowed!'); // For the moment, only the admin can burn tokens
+    function selfBurn(uint256 value) public {
+        require(isSuperAdmin(), 'Address is not allowed!'); // For the moment, only the admin can burn tokens
         require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
         
         totalSupply -= value;
+
+        emit Transfer(msg.sender, eaterAddress, value);
     }
     
     // Remove smart contract
-    // Should be executed only from an admin address
+    // Should be executed only from a super admin address
     function kill() public {
         require(isSuperAdmin(), 'Address is not allowed!');
         address payable ownerAddress = payable(address(msg.sender));
@@ -206,5 +221,27 @@ contract Kandle {
         require(isSuperAdmin(), 'Address is not allowed!');
 
         blacklist[target] = blacklisted;
+    }
+
+    // Manage ecosystem fees
+    function updateTxFees(uint newFees) public {
+        require(isSuperAdmin(), 'Address is not allowed!');
+        require(newFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
+
+        _txFees = newFees;
+    }
+
+    function updatePoolAshes(uint newPoolAshes) public {
+        require(isSuperAdmin(), 'Address is not allowed!');
+        require(newPoolAshes <= _poolAshesMaxVal, 'New fees exceed maximum value!');
+
+        _poolAshes = newPoolAshes;
+    }
+
+    function updateRewardsTxFees(uint newRewardsTxFees) public {
+        require(isSuperAdmin(), 'Address is not allowed!');
+        require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
+
+        _rewardTxFees = newRewardsTxFees;
     }
 }
