@@ -1,6 +1,28 @@
 // SPDX-License-Identifier: Kandle
 pragma solidity ^0.8.2;
 
+/*contract itemRemoval{
+  uint[] public firstArray = [1,2,3,4,5];
+  function removeItem(uint i) public{
+    delete firstArray[i];
+  }
+  function getLength() public view returns(uint){
+    return firstArray.length;
+  }
+
+  function remove(uint index) public{
+    firstArray[index] = firstArray[firstArray.length - 1];
+    firstArray.pop();
+  }
+
+  function orderedArray(uint index) public{
+    for(uint i = index; i < firstArray.length-1; i++){
+      firstArray[i] = firstArray[i+1];      
+    }
+    firstArray.pop();
+  }
+}*/
+
 library SafeMath {
 
     function add(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -94,10 +116,6 @@ contract Kandle {
     
     // Manager users
     mapping(address => bool) private _blacklist;
-    
-    // Manager events
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
 
     // Manage fees
     uint private constant _txFeesMaxVal = 10;
@@ -106,13 +124,78 @@ contract Kandle {
     uint private _txFees = 10;
     uint private _poolAshes = 70;
     uint private _rewardTxFees = 10;
+
+    // Manage pools
+    uint256 currentPoolStartTimestamp;
+    bool poolInProgress;
+    address[] kandlersAddresses;
+    mapping(address => uint256) kandlers;
+
+    // Manage events
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event AllowanceApproval(address indexed owner, address indexed spender, uint256 value);
     
-    // Called only once when we first deploy the smart contract
     constructor() {
         _superAdmin = msg.sender;
         
         balances[treasuryReceiver] = totalSupply.mul(_treasuryAllowance).div(100);
         balances[msg.sender] = totalSupply.mul(_privateSaleAllowance.add(_publicSaleAllowance).add(_teamAllowance).add(_partnershipAllowance)).div(100);
+    }
+
+    modifier onlySuperAdmin() {
+        require(msg.sender == _superAdmin, 'Address is not allowed');
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(msg.sender == _superAdmin || _admins[msg.sender], 'Address is not allowed');
+        _;
+    }
+
+    // Register an admin
+    function registerAdmin(address target) onlySuperAdmin() external {
+        _admins[target] = true;
+    }
+
+    // Unregister an admin
+    function unregisterAdmin(address target) onlySuperAdmin() external {
+        require(_admins[target], 'Admin does not exist or already unregistered!');
+
+        _admins[target] = false;
+    }
+
+    // Check if user is blacklisted
+    function isBlacklisted(address target) external view returns(bool) {
+        require(_blacklist[target], 'Address was never added to blacklist!');
+
+        return _blacklist[target];
+    }
+
+    // Manage blacklist
+    function updateBlacklistState(address target, bool blacklisted) onlyAdmin() external {
+        _blacklist[target] = blacklisted;
+    }
+
+    // Manage ecosystem fees
+    function updateTxFees(uint newTxFees) onlySuperAdmin() external {
+        require(newTxFees > 0, 'Zero value not allowed!');
+        require(newTxFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
+
+        _txFees = newTxFees;
+    }
+
+    function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() external {
+        require(newPoolAshes > 0, 'Zero value not allowed!');
+        require(newPoolAshes <= _poolAshesMaxVal, 'New ashes exceed maximum value!');
+
+        _poolAshes = newPoolAshes;
+    }
+
+    function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() external {
+        require(newRewardsTxFees > 0, 'Zero value not allowed!');
+        require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
+
+        _rewardTxFees = newRewardsTxFees;
     }
     
     // view means the function is readonly and it can't modify data on the blockchain
@@ -137,7 +220,7 @@ contract Kandle {
         return true;
     }
     
-    // Transfer tokens from an address to another address
+    // Transfer tokens from an address to another address ???
     function transferFrom(address from, address to, uint256 amount) external returns(bool) {
         require(balanceOf(from) >= amount, 'Balance is too low!');
         require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
@@ -159,19 +242,28 @@ contract Kandle {
     function authorizeAllowance(address spender, uint256 value) external returns(bool) {
         allowances[msg.sender][spender] = value;
         
-        emit Approval(msg.sender, spender, value);
+        emit AllowanceApproval(msg.sender, spender, value);
         return true;
     }
 
-    function updateAllowance(address spender, uint256 value) external returns(bool) {
-        allowances[msg.sender][spender] = value;
-        
-        emit Approval(msg.sender, spender, value);
-        return true;
+    function startPool() onlyAdmin() external {
+        // define variable startingTimestamp = Timestamp
+        poolInProgress = true;
+    }
+
+    function participateInPool(address player, uint256 amount) external returns(bool) {
+        // Refuel Ashes collector
+        // 
+    }
+
+    function endPool() onlyAdmin() external {
+        // Timestamp end
+        // Time difference
+
+        poolInProgress = false;
     }
     
-    function selfBurn(uint256 value) external {
-        require(isSuperAdmin(), 'Address is not allowed!'); // For the moment, only the admin can burn tokens
+    function selfBurn(uint256 value) onlyAdmin() external {
         require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
         
         totalSupply -= value;
@@ -181,72 +273,8 @@ contract Kandle {
     
     // Remove smart contract
     // Should be executed only from a super admin address
-    function kill() external {
-        require(isSuperAdmin(), 'Address is not allowed!');
+    function kill() onlySuperAdmin() external {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
-    }
-
-    // Check if the calling address is the super admin
-    // TODO: Should be passed to private
-    function isSuperAdmin() public view returns(bool) {
-        return msg.sender == _superAdmin;
-    }
-
-    // Check if the calling address is an admin
-    // TODO: Should be passed to private
-    function isAdmin() public view returns(bool) {
-        return msg.sender == _superAdmin || _admins[msg.sender];
-    }
-
-    // Register an admin
-    function registerAdmin(address target) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-
-        _admins[target] = true;
-    }
-
-    // Unregister an admin
-    function unregisterAdmin(address target) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-        require(_admins[target], 'Admin does not exist or already unregistered!');
-        
-        _admins[target] = false;
-    }
-
-    // Check if user is blacklisted
-    function isBlacklisted(address target) external view returns(bool) {
-        require(_blacklist[target], 'Address was never added to blacklist!');
-
-        return _blacklist[target];
-    }
-
-    // Manage blacklist
-    function updateBlacklistState(address target, bool blacklisted) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-
-        _blacklist[target] = blacklisted;
-    }
-
-    // Manage ecosystem fees
-    function updateTxFees(uint newFees) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-        require(newFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
-
-        _txFees = newFees;
-    }
-
-    function updatePoolAshes(uint newPoolAshes) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-        require(newPoolAshes <= _poolAshesMaxVal, 'New fees exceed maximum value!');
-
-        _poolAshes = newPoolAshes;
-    }
-
-    function updateRewardsTxFees(uint newRewardsTxFees) external {
-        require(isSuperAdmin(), 'Address is not allowed!');
-        require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
-
-        _rewardTxFees = newRewardsTxFees;
     }
 }
