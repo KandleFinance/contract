@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: Kandle
 pragma solidity ^0.8.2;
 
-/*contract itemRemoval{
-  uint[] public firstArray = [1,2,3,4,5];
-  function removeItem(uint i) public{
-    delete firstArray[i];
-  }
-  function getLength() public view returns(uint){
-    return firstArray.length;
-  }
-
-  function remove(uint index) public{
-    firstArray[index] = firstArray[firstArray.length - 1];
-    firstArray.pop();
-  }
-
-  function orderedArray(uint index) public{
-    for(uint i = index; i < firstArray.length-1; i++){
-      firstArray[i] = firstArray[i+1];      
-    }
-    firstArray.pop();
-  }
-}*/
-
 library SafeMath {
 
     function add(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -83,6 +61,16 @@ contract Kandle {
 
     // Use math librairies
     using SafeMath for uint256;
+
+    struct TopKandler {
+        address addr;
+        uint256 engagedAmount;
+    }
+
+    struct Pool {
+        uint256 currentId;
+        uint256 kandlersCount;
+    }
     
     // Define token properties
     uint public decimals = 18;
@@ -126,20 +114,36 @@ contract Kandle {
     uint private _rewardTxFees = 10;
 
     // Manage pools
-    uint256 currentPoolStartTimestamp;
-    bool poolInProgress;
-    address[] kandlersAddresses;
-    mapping(address => uint256) kandlers;
+    uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
+    uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
+    uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
+    uint8 private constant _rewardsMultiplier = 2; // Multiplier for top kandler
+    uint256 private _currentPoolId; // Auto increment ID
+    uint256 private _currentPoolStartTimestamp;
+    bool private _poolInProgress;
+    mapping(uint256 => Pool) private _pools;
+
+    address[] private _kandlersAddresses;
+    mapping(address => uint256) private _kandlers;
+    mapping(address => TopKandler) private _topKandlers;
+    mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
 
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
     event AllowanceApproval(address indexed owner, address indexed spender, uint256 value);
+    event ToKandle(address indexed kandler, uint256 value);
     
     constructor() {
         _superAdmin = msg.sender;
         
         balances[treasuryReceiver] = totalSupply.mul(_treasuryAllowance).div(100);
         balances[msg.sender] = totalSupply.mul(_privateSaleAllowance.add(_publicSaleAllowance).add(_teamAllowance).add(_partnershipAllowance)).div(100);
+
+        balances[feesCollector] = 0;
+        balances[ashesCollector] = 0;
+        balances[burnsCollector] = 0;
+        balances[rewardsCollector] = 0;
+        balances[fuelCollector] = 0;
     }
 
     modifier onlySuperAdmin() {
@@ -149,6 +153,11 @@ contract Kandle {
 
     modifier onlyAdmin() {
         require(msg.sender == _superAdmin || _admins[msg.sender], 'Address is not allowed');
+        _;
+    }
+
+    modifier aboveZero(uint256 value) {
+        require(value > 0, 'Zero value not accepted');
         _;
     }
 
@@ -164,35 +173,33 @@ contract Kandle {
         _admins[target] = false;
     }
 
-    // Check if user is blacklisted
-    function isBlacklisted(address target) external view returns(bool) {
-        require(_blacklist[target], 'Address was never added to blacklist!');
-
-        return _blacklist[target];
+    // Manage exclusions
+    function isBlacklisted() public view returns(bool) {
+        return _blacklist[msg.sender];
     }
 
-    // Manage blacklist
     function updateBlacklistState(address target, bool blacklisted) onlyAdmin() external {
         _blacklist[target] = blacklisted;
     }
 
+    function isExcluded() public view returns(bool) {
+        return _excludedKandlers[msg.sender].add(_poolSkips) <= _currentPoolId;
+    }
+
     // Manage ecosystem fees
-    function updateTxFees(uint newTxFees) onlySuperAdmin() external {
-        require(newTxFees > 0, 'Zero value not allowed!');
+    function updateTxFees(uint newTxFees) onlySuperAdmin() aboveZero(newTxFees) external {
         require(newTxFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
 
         _txFees = newTxFees;
     }
 
-    function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() external {
-        require(newPoolAshes > 0, 'Zero value not allowed!');
+    function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() aboveZero(newPoolAshes) external {
         require(newPoolAshes <= _poolAshesMaxVal, 'New ashes exceed maximum value!');
 
         _poolAshes = newPoolAshes;
     }
 
-    function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() external {
-        require(newRewardsTxFees > 0, 'Zero value not allowed!');
+    function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() aboveZero(newRewardsTxFees) external {
         require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
 
         _rewardTxFees = newRewardsTxFees;
@@ -246,24 +253,104 @@ contract Kandle {
         return true;
     }
 
-    function startPool() onlyAdmin() external {
-        // define variable startingTimestamp = Timestamp
-        poolInProgress = true;
+    // Manager pools
+    function poolInProgress() public view returns(bool) {
+        return _poolInProgress;
     }
 
-    function participateInPool(address player, uint256 amount) external returns(bool) {
-        // Refuel Ashes collector
-        // 
+    function launchPool() onlyAdmin() external {
+        require(!poolInProgress(), 'A pool is already in progress!');
+        
+        _currentPoolStartTimestamp = block.timestamp;
+        _poolInProgress = true;
+        _currentPoolId++;
+        _pools[_currentPoolId] = Pool(_currentPoolId, 0);
+    }
+
+    function lightKandle(uint256 amount) aboveZero(amount) external returns(bool) {
+        require(poolInProgress(), 'No pool is launched yet!');
+        require(!isBlacklisted(), 'Kandler is blacklisted!');
+        require(!isExcluded(), 'Kandler is excluded from this pool');
+        require(balanceOf(msg.sender) >= amount, 'Balance is too low!');
+
+        // Compute ashes
+        uint256 ashesAmount = amount.mul(_poolAshes).div(100);
+        uint256 burnsAmount = amount.sub(ashesAmount);
+
+        // Refuel collectors
+        balances[ashesCollector] += ashesAmount;
+        balances[burnsCollector] += burnsAmount;
+        balances[msg.sender] -= amount;
+        _kandlersAddresses.push(msg.sender);
+        _kandlers[msg.sender] += amount; // Increment engaged tokens
+
+        // Update statistics
+        _pools[_currentPoolId].kandlersCount++;
+
+        emit ToKandle(msg.sender, amount);
+        return true;
     }
 
     function endPool() onlyAdmin() external {
-        // Timestamp end
-        // Time difference
+        require(block.timestamp - _currentPoolStartTimestamp >= _poolTime, 'Ending date not reached yet!');
+        
+        // Refuel rewards collector
+        uint256 collectedRewards = balances[feesCollector] + balances[ashesCollector];
+        uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(100);
+        uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
+        balances[feesCollector] = 0;
+        balances[ashesCollector] = 0;
+        balances[fuelCollector] += rewardsTxFeesAmount;
+        balances[rewardsCollector] = distributedRewards;
 
-        poolInProgress = false;
+        // Estimate top kandlers count
+        uint potentialTopKandlers = _topKandlersCount; // Max by default
+        if (_kandlersAddresses.length < _topKandlersCount) {
+            potentialTopKandlers = _kandlersAddresses.length;
+        }
+
+        // Get top and sorted kandlers
+        TopKandler[] memory topKandlers = new TopKandler[](potentialTopKandlers);
+        for (uint8 i = 0; i < potentialTopKandlers; i++) {
+            uint256 topKandlerIndex = 0;
+            uint256 maxEngagedAmount = 0;
+
+            for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
+                // Who has engaged more tokens and wasn't already added
+                address target = _kandlersAddresses[j];
+                if ((_kandlers[target] > maxEngagedAmount) && !amongTopKandlers(topKandlers, target)) {
+                    topKandlerIndex = j;
+                    maxEngagedAmount = _kandlers[_kandlersAddresses[j]];
+                }
+            }
+
+            // Update top kandlers
+            topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount);
+        }
+
+        // TODO: reward top kandlers
+        // TODO: exclude top kandlers
+        // TODO: send the rest to fuel collector
+        // TODO: burn the collected tokens in burns collector
+
+        _poolInProgress = false;
+    }
+
+    function amongTopKandlers(TopKandler[] memory topKandlers, address target) private pure returns(bool) {
+        bool addressExists = false;
+        uint counter = 0;
+        while(!addressExists && (counter < topKandlers.length)) {
+            if (topKandlers[counter].addr == target) {
+                addressExists = true;
+            }
+
+            counter++;
+        }
+
+        return addressExists;
     }
     
-    function selfBurn(uint256 value) onlyAdmin() external {
+    function burn(uint256 value) onlyAdmin() external {
         require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
         
         totalSupply -= value;
