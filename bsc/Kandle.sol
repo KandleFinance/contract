@@ -141,7 +141,7 @@ contract Kandle {
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
-    event ToKandle(address indexed kandler, uint256 value);
+    event LightKandle(address indexed kandler, uint256 value);
     event Reward(address indexed kandler, uint256 value);
     
     constructor() {
@@ -323,7 +323,7 @@ contract Kandle {
         _kandlersAddresses.push(msg.sender);
         _kandlers[msg.sender] = _kandlers[msg.sender].add(amount); // Increment engaged tokens
 
-        emit ToKandle(msg.sender, amount);
+        emit LightKandle(msg.sender, amount);
         return true;
     }
 
