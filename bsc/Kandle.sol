@@ -305,11 +305,10 @@ contract Kandle {
         _currentPoolId++;
     }
 
-    function lightKandle(uint256 engaged) aboveZero(engaged) external returns(bool) {
+    function lightKandle(uint256 engaged) aboveZero(engaged) hasBalance(msg.sender, engaged) external returns(bool) {
         require(poolInProgress(), 'No pool is launched yet!');
         require(!isBlacklisted(), 'Kandler is blacklisted!');
         require(!isExcluded(), 'Kandler is excluded from this pool');
-        require(balanceOf(msg.sender) >= engaged, 'Balance is too low!');
 
         // Compute ashes
         uint256 ashesAmount = engaged.mul(_poolAshes).div(100);
