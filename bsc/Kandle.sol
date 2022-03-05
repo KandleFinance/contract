@@ -203,9 +203,9 @@ contract Kandle {
         uint256 reducedAmount = value.sub(txFeesAmount);
         
         // Update balances
-        balances[feesCollector] += txFeesAmount;
-        balances[to] += reducedAmount;
-        balances[msg.sender] -= value;
+        balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
+        balances[to] = balances[to].add(reducedAmount);
+        balances[msg.sender] = balances[msg.sender].sub(value);
         
         emit Transfer(msg.sender, to, value);
         return true;
@@ -220,9 +220,9 @@ contract Kandle {
         uint256 reducedAmount = value.sub(txFeesAmount);
         
         // Update balances
-        balances[feesCollector] += txFeesAmount;
-        balances[to] += reducedAmount;
-        balances[from] -= value;
+        balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
+        balances[to] = balances[to].add(reducedAmount);
+        balances[from] = balances[from].sub(value);
         
         emit Transfer(from, to, value);
         return true;
@@ -316,12 +316,12 @@ contract Kandle {
         uint256 burnsAmount = amount.sub(ashesAmount);
 
         // Refuel collectors
-        balances[ashesCollector] += ashesAmount;
-        balances[burnsCollector] += burnsAmount;
-        balances[msg.sender] -= amount;
+        balances[ashesCollector] = balances[ashesCollector].add(ashesAmount);
+        balances[burnsCollector] = balances[burnsCollector].add(burnsAmount);
+        balances[msg.sender] = balances[msg.sender].sub(amount);
 
         _kandlersAddresses.push(msg.sender);
-        _kandlers[msg.sender] += amount; // Increment engaged tokens
+        _kandlers[msg.sender] = _kandlers[msg.sender].add(amount); // Increment engaged tokens
 
         emit ToKandle(msg.sender, amount);
         return true;
@@ -338,7 +338,7 @@ contract Kandle {
         uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(100);
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
         balances[rewardsCollector] = distributedRewards;
-        balances[fuelCollector] += rewardsTxFeesAmount;
+        balances[fuelCollector] = balances[fuelCollector].add(rewardsTxFeesAmount);
         balances[feesCollector] = 0;
         balances[ashesCollector] = 0;
         
@@ -367,8 +367,8 @@ contract Kandle {
             uint256 maxRewards = topKandlers[i].engaged.mul(_rewardsMultiplier);
             if (balances[rewardsCollector] >= maxRewards) {
                 // The kandler will have max rewards
-                balances[topKandlers[i].addr] += maxRewards;
-                balances[rewardsCollector] -= maxRewards;
+                balances[topKandlers[i].addr] = balances[topKandlers[i].addr].add(maxRewards);
+                balances[rewardsCollector] = balances[rewardsCollector].sub(maxRewards);
                 _excludedKandlers[_kandlersAddresses[topKandlerIndex]] = _currentPoolId; // Exclude kandler from the next x pools
                 topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount, maxRewards, TopKandlerType.REWARDED);
                 
@@ -382,13 +382,13 @@ contract Kandle {
 
         // Refuel fuel collector after rewards process
         if (balances[rewardsCollector] > 0) {
-            balances[fuelCollector] += balances[rewardsCollector];
+            balances[fuelCollector] = balances[fuelCollector].add(balances[rewardsCollector]);
             balances[rewardsCollector] = 0;
         }
 
         // Empty burns collector
         uint256 burned = balances[burnsCollector];
-        totalSupply -= burned;
+        totalSupply = totalSupply.sub(burned);
         balances[burnsCollector] = 0;
         // TODO: Should we approve allowance first? Needs to be tested
 
@@ -418,8 +418,8 @@ contract Kandle {
     }
     
     function burn(uint256 value) hasBalance(msg.sender, value) burnable(value) public {
-        balances[msg.sender] -= value;
-        totalSupply -= value;
+        balances[msg.sender] = balances[msg.sender].sub(value);
+        totalSupply = totalSupply.sub(value);
 
         emit Transfer(msg.sender, eaterAddress, value);
     }
