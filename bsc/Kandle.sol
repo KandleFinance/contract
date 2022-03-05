@@ -62,14 +62,24 @@ contract Kandle {
     // Use math librairies
     using SafeMath for uint256;
 
+    enum TopKandlerType {
+        REWARDED,
+        UNREWARDED
+    }
+
     struct TopKandler {
         address addr;
-        uint256 engagedAmount;
+        uint256 engaged;
+        uint256 rewarded;
+        TopKandlerType kandlerType;
     }
 
     struct Pool {
-        uint256 currentId;
+        uint256 id;
+        uint256 startTS;
+        uint256 endTS;
         uint256 kandlersCount;
+        TopKandler[] topKandlers;
     }
     
     // Define token properties
@@ -118,10 +128,10 @@ contract Kandle {
     uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _rewardsMultiplier = 2; // Multiplier for top kandler
+    mapping(uint256 => Pool) private _pools;
     uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTimestamp;
     bool private _poolInProgress;
-    mapping(uint256 => Pool) private _pools;
 
     address[] private _kandlersAddresses;
     mapping(address => uint256) private _kandlers;
@@ -130,8 +140,9 @@ contract Kandle {
 
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
-    event AllowanceApproval(address indexed owner, address indexed spender, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
     event ToKandle(address indexed kandler, uint256 value);
+    event Reward(address indexed kandler, uint256 value);
     
     constructor() {
         _superAdmin = msg.sender;
@@ -161,6 +172,69 @@ contract Kandle {
         _;
     }
 
+    modifier hasBalance(address target, uint256 value) {
+        require(balances[target] >= value, 'Insufficient balance!');
+        _;
+    }
+
+    modifier burnable(uint256 value) {
+        require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
+        _;
+    }
+
+    modifier isKandler(address target) {
+        require(_kandlers[target] > 0, 'Not a kandler!');
+        _;
+    }
+
+    function getOwner() external view returns(address) {
+        return _superAdmin;
+    }
+
+    function balanceOf(address owner) public view returns(uint) {
+        return balances[owner];
+    }
+    
+    function transfer(address to, uint256 amount) public returns(bool) {
+        require(balances[msg.sender] >= amount, 'Balance is too low!');
+
+        // Compute tx fees
+        uint256 txFeesAmount = amount.mul(_txFees).div(100);
+        uint256 reducedAmount = amount.sub(txFeesAmount);
+        
+        // Update balances
+        balances[feesCollector] += txFeesAmount;
+        balances[to] += reducedAmount;
+        balances[msg.sender] -= amount;
+        
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) public returns(bool) {
+        require(balanceOf(from) >= amount, 'Balance is too low!');
+        require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
+
+        // Compute tx fees
+        uint256 txFeesAmount = amount.mul(_txFees).div(100);
+        uint256 reducedAmount = amount.sub(txFeesAmount);
+        
+        // Update balances
+        balances[feesCollector] += txFeesAmount;
+        balances[to] += reducedAmount;
+        balances[from] -= amount;
+        
+        emit Transfer(from, to, amount);
+        return true;
+    }
+    
+    function allowance(address spender, uint256 value) public returns(bool) {
+        allowances[msg.sender][spender] = value;
+        
+        emit Approval(msg.sender, spender, value);
+        return true;
+    }
+
     // Register an admin
     function registerAdmin(address target) onlySuperAdmin() external {
         _admins[target] = true;
@@ -188,83 +262,47 @@ contract Kandle {
 
     // Manage ecosystem fees
     function updateTxFees(uint newTxFees) onlySuperAdmin() aboveZero(newTxFees) external {
+        require(!poolInProgress(), 'A pool is already in progress!');
         require(newTxFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
 
         _txFees = newTxFees;
     }
 
     function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() aboveZero(newPoolAshes) external {
+        require(!poolInProgress(), 'A pool is already in progress!');
         require(newPoolAshes <= _poolAshesMaxVal, 'New ashes exceed maximum value!');
 
         _poolAshes = newPoolAshes;
     }
 
     function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() aboveZero(newRewardsTxFees) external {
+        require(!poolInProgress(), 'A pool is already in progress!');
         require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
 
         _rewardTxFees = newRewardsTxFees;
     }
-    
-    // view means the function is readonly and it can't modify data on the blockchain
-    function balanceOf(address owner) public view returns(uint) {
-        return balances[owner];
-    }
-    
-    // Transfer tokens to another address
-    function transfer(address to, uint256 amount) external returns(bool) {
-        require(balances[msg.sender] >= amount, 'Balance is too low!');
 
-        // Compute tx fees
-        uint256 txFeesAmount = amount.mul(_txFees).div(100);
-        uint256 reducedAmount = amount.sub(txFeesAmount);
-        
-        // Update balances
-        balances[feesCollector] += txFeesAmount;
-        balances[to] += reducedAmount;
-        balances[msg.sender] -= amount;
-        
-        emit Transfer(msg.sender, to, amount);
-        return true;
-    }
-    
-    // Transfer tokens from an address to another address ???
-    function transferFrom(address from, address to, uint256 amount) external returns(bool) {
-        require(balanceOf(from) >= amount, 'Balance is too low!');
-        require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
-
-        // Compute tx fees
-        uint256 txFeesAmount = amount.mul(_txFees).div(100);
-        uint256 reducedAmount = amount.sub(txFeesAmount);
-        
-        // Update balances
-        balances[feesCollector] += txFeesAmount;
-        balances[to] += reducedAmount;
-        balances[from] -= amount;
-        
-        emit Transfer(from, to, amount);
-        return true;
-    }
-    
-    // Authorize an address to spend a given amount of tokens
-    function authorizeAllowance(address spender, uint256 value) external returns(bool) {
-        allowances[msg.sender][spender] = value;
-        
-        emit AllowanceApproval(msg.sender, spender, value);
-        return true;
-    }
-
-    // Manager pools
+    // Manage pools
     function poolInProgress() public view returns(bool) {
         return _poolInProgress;
     }
 
-    function launchPool() onlyAdmin() external {
+    // TODO: Should we restrict to admins ?
+    function getPoolData(uint256 id) external view returns(Pool memory) {
+        return _pools[id];
+    }
+
+    // TODO: Should we restrict to admins ?
+    function getEngagedTokens(address target) external isKandler(target) view returns(uint256) {
+        return _kandlers[target];
+    }
+
+    function launchKandle() onlyAdmin() external {
         require(!poolInProgress(), 'A pool is already in progress!');
         
         _currentPoolStartTimestamp = block.timestamp;
         _poolInProgress = true;
         _currentPoolId++;
-        _pools[_currentPoolId] = Pool(_currentPoolId, 0);
     }
 
     function lightKandle(uint256 amount) aboveZero(amount) external returns(bool) {
@@ -281,28 +319,29 @@ contract Kandle {
         balances[ashesCollector] += ashesAmount;
         balances[burnsCollector] += burnsAmount;
         balances[msg.sender] -= amount;
+
         _kandlersAddresses.push(msg.sender);
         _kandlers[msg.sender] += amount; // Increment engaged tokens
-
-        // Update statistics
-        _pools[_currentPoolId].kandlersCount++;
 
         emit ToKandle(msg.sender, amount);
         return true;
     }
 
-    function endPool() onlyAdmin() external {
+    function blowKandle() onlyAdmin() external {
         require(block.timestamp - _currentPoolStartTimestamp >= _poolTime, 'Ending date not reached yet!');
+
+        // Save end pool timestamp
+        uint256 currentPoolEndTimestamp = block.timestamp;
         
-        // Refuel rewards collector
+        // Refuel rewards/fuel collector
         uint256 collectedRewards = balances[feesCollector] + balances[ashesCollector];
         uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(100);
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
+        balances[rewardsCollector] = distributedRewards;
+        balances[fuelCollector] += rewardsTxFeesAmount;
         balances[feesCollector] = 0;
         balances[ashesCollector] = 0;
-        balances[fuelCollector] += rewardsTxFeesAmount;
-        balances[rewardsCollector] = distributedRewards;
-
+        
         // Estimate top kandlers count
         uint potentialTopKandlers = _topKandlersCount; // Max by default
         if (_kandlersAddresses.length < _topKandlersCount) {
@@ -320,19 +359,47 @@ contract Kandle {
                 address target = _kandlersAddresses[j];
                 if ((_kandlers[target] > maxEngagedAmount) && !amongTopKandlers(topKandlers, target)) {
                     topKandlerIndex = j;
-                    maxEngagedAmount = _kandlers[_kandlersAddresses[j]];
+                    maxEngagedAmount = _kandlers[target];
                 }
             }
 
-            // Update top kandlers
-            topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount);
+            // Reward top kandler
+            uint256 maxRewards = topKandlers[i].engaged.mul(_rewardsMultiplier);
+            if (balances[rewardsCollector] >= maxRewards) {
+                // The kandler will have max rewards
+                balances[topKandlers[i].addr] += maxRewards;
+                balances[rewardsCollector] -= maxRewards;
+                _excludedKandlers[_kandlersAddresses[topKandlerIndex]] = _currentPoolId; // Exclude kandler from the next x pools
+                topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount, maxRewards, TopKandlerType.REWARDED);
+                
+                emit Reward(_kandlersAddresses[topKandlerIndex], maxRewards);
+            } else {
+                // Could not max rewards to this top kandler
+                // TODO: Should we give the rest to this kandler ???
+                topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount, 0, TopKandlerType.UNREWARDED);
+            }
         }
 
-        // TODO: reward top kandlers
-        // TODO: exclude top kandlers
-        // TODO: send the rest to fuel collector
-        // TODO: burn the collected tokens in burns collector
+        // Refuel fuel collector after rewards process
+        if (balances[rewardsCollector] > 0) {
+            balances[fuelCollector] += balances[rewardsCollector];
+            balances[rewardsCollector] = 0;
+        }
 
+        // Empty burns collector
+        uint256 burned = balances[burnsCollector];
+        totalSupply -= burned;
+        balances[burnsCollector] = 0;
+        // TODO: Should we approve allowance first? Needs to be tested
+
+        emit Transfer(burnsCollector, eaterAddress, burned);
+
+        // Save/reset pool
+        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, topKandlers);
+        for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
+            delete _kandlers[_kandlersAddresses[j]];
+        }
+        delete _kandlersAddresses;
         _poolInProgress = false;
     }
 
@@ -350,16 +417,13 @@ contract Kandle {
         return addressExists;
     }
     
-    function burn(uint256 value) onlyAdmin() external {
-        require(totalSupply - value >= 0, 'Total supply is not sufficient for burn!');
-        
+    function burn(uint256 value) hasBalance(msg.sender, value) burnable(value) public {
+        balances[msg.sender] -= value;
         totalSupply -= value;
 
         emit Transfer(msg.sender, eaterAddress, value);
     }
-    
-    // Remove smart contract
-    // Should be executed only from a super admin address
+
     function kill() onlySuperAdmin() external {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
