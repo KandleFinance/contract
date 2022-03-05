@@ -195,36 +195,36 @@ contract Kandle {
         return balances[owner];
     }
     
-    function transfer(address to, uint256 amount) public returns(bool) {
-        require(balances[msg.sender] >= amount, 'Balance is too low!');
+    function transfer(address to, uint256 value) public returns(bool) {
+        require(balances[msg.sender] >= value, 'Balance is too low!');
 
         // Compute tx fees
-        uint256 txFeesAmount = amount.mul(_txFees).div(100);
-        uint256 reducedAmount = amount.sub(txFeesAmount);
+        uint256 txFeesAmount = value.mul(_txFees).div(100);
+        uint256 reducedAmount = value.sub(txFeesAmount);
         
         // Update balances
         balances[feesCollector] += txFeesAmount;
         balances[to] += reducedAmount;
-        balances[msg.sender] -= amount;
+        balances[msg.sender] -= value;
         
-        emit Transfer(msg.sender, to, amount);
+        emit Transfer(msg.sender, to, value);
         return true;
     }
     
-    function transferFrom(address from, address to, uint256 amount) public returns(bool) {
-        require(balanceOf(from) >= amount, 'Balance is too low!');
-        require(allowances[from][msg.sender] >= amount, 'Insufficient allowance!');
+    function transferFrom(address from, address to, uint256 value) public returns(bool) {
+        require(balanceOf(from) >= value, 'Balance is too low!');
+        require(allowances[from][msg.sender] >= value, 'Insufficient allowance!');
 
         // Compute tx fees
-        uint256 txFeesAmount = amount.mul(_txFees).div(100);
-        uint256 reducedAmount = amount.sub(txFeesAmount);
+        uint256 txFeesAmount = value.mul(_txFees).div(100);
+        uint256 reducedAmount = value.sub(txFeesAmount);
         
         // Update balances
         balances[feesCollector] += txFeesAmount;
         balances[to] += reducedAmount;
-        balances[from] -= amount;
+        balances[from] -= value;
         
-        emit Transfer(from, to, amount);
+        emit Transfer(from, to, value);
         return true;
     }
     
