@@ -337,7 +337,7 @@ contract Kandle {
         uint256 collectedRewards = balances[feesCollector] + balances[ashesCollector];
         uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(100);
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
-        balances[rewardsCollector] = distributedRewards;
+        balances[rewardsCollector] = balances[rewardsCollector].add(distributedRewards);
         balances[fuelCollector] = balances[fuelCollector].add(rewardsTxFeesAmount);
         balances[feesCollector] = 0;
         balances[ashesCollector] = 0;
