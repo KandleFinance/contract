@@ -93,6 +93,7 @@ contract Kandle {
         uint256 endTS;
         uint256 kandlersCount;
         uint256 totalEngaged;
+        uint256 totalBurned;
         TopKandler[] topKandlers;
     }
     
@@ -134,7 +135,7 @@ contract Kandle {
     uint private constant _poolBurnsMaxVal = 50;
     uint private constant _rewardTxFeesMaxVal = 10;
     uint private _txFees = 10;
-    uint private _poolBurns = 30;
+    uint private _poolBurns = 20;
     uint private _rewardTxFees = 10;
 
     // Manage pools
@@ -408,7 +409,8 @@ contract Kandle {
         }
 
         // Save/reset pool
-        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, totalEngaged, topKandlers);
+        uint256 totalBurned = balances[burnsCollector];
+        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, totalEngaged, totalBurned, topKandlers);
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
         }
@@ -416,10 +418,9 @@ contract Kandle {
         totalEngaged = 0;
 
         // Burn collected tokens
-        uint256 burned = balances[burnsCollector];
-        totalSupply = totalSupply.sub(burned);
-        balances[burnsCollector] = balances[burnsCollector].sub(burned);
-        emit Burn(burnsCollector, eaterAddress, burned);
+        totalSupply = totalSupply.sub(totalBurned);
+        balances[burnsCollector] = balances[burnsCollector].sub(totalBurned);
+        emit Burn(burnsCollector, eaterAddress, totalBurned);
     }
 
     function amongTopKandlers(TopKandler[] memory topKandlers, address target) private pure returns(bool) {
@@ -436,7 +437,7 @@ contract Kandle {
         balances[msg.sender] = balances[msg.sender].sub(value);
         totalSupply = totalSupply.sub(value);
 
-        emit Transfer(msg.sender, eaterAddress, value);
+        emit Burn(msg.sender, eaterAddress, value);
     }
 
     function kill() onlySuperAdmin() external {
