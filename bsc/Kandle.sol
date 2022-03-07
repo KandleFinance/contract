@@ -57,10 +57,23 @@ library SafeMath {
     }
 }
 
+library ArrayUtilities {
+
+    function contains(address[] memory addresses, address target) internal pure returns(bool) {
+        for (uint i = 0; i < addresses.length; i++) {
+            if (addresses[i] == target) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 contract Kandle {
 
-    // Use math librairies
     using SafeMath for uint256;
+    using ArrayUtilities for address[];
 
     enum TopKandlerType {
         REWARDED,
@@ -79,6 +92,7 @@ contract Kandle {
         uint256 startTS;
         uint256 endTS;
         uint256 kandlersCount;
+        uint256 totalEngaged;
         TopKandler[] topKandlers;
     }
     
@@ -132,6 +146,7 @@ contract Kandle {
     uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTimestamp;
     bool private _poolInProgress;
+    uint256 private totalEngaged;
 
     address[] private _kandlersAddresses;
     mapping(address => uint256) private _kandlers;
@@ -157,7 +172,8 @@ contract Kandle {
         balances[fuelCollector] = 0;
     }
 
-    modifier onlySuperAdmin() {
+    modifier onlySuperAdmin(/*string memory secret*/) {
+        //require(secret == "6f1080e05794fa1869d5053a1ea4d095daee2957e9a259d902ccb6ff1bb86ccc", 'Secret key is not correct');
         require(msg.sender == _superAdmin, 'Address is not allowed');
         _;
     }
@@ -268,6 +284,7 @@ contract Kandle {
         _txFees = newTxFees;
     }
 
+    // TODO: Invert ashes and burns percentage. Ref = 50, start with 30 %
     function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() aboveZero(newPoolAshes) external {
         require(!poolInProgress(), 'A pool is already in progress!');
         require(newPoolAshes <= _poolAshesMaxVal, 'New ashes exceed maximum value!');
@@ -286,23 +303,21 @@ contract Kandle {
     function poolInProgress() public view returns(bool) {
         return _poolInProgress;
     }
-
-    // TODO: Should we restrict to admins ?
+    
     function getPoolData(uint256 id) external view returns(Pool memory) {
         return _pools[id];
     }
 
-    // TODO: Should we restrict to admins ?
-    function getEngagedTokens(address target) external isKandler(target) view returns(uint256) {
-        return _kandlers[target];
+    function getEngagedTokens() external isKandler(msg.sender) view returns(uint256) {
+        return _kandlers[msg.sender];
     }
 
     function launchKandle() onlyAdmin() external {
         require(!poolInProgress(), 'A pool is already in progress!');
         
+        _currentPoolId++;
         _currentPoolStartTimestamp = block.timestamp;
         _poolInProgress = true;
-        _currentPoolId++;
     }
 
     function lightKandle(uint256 engaged) aboveZero(engaged) hasBalance(msg.sender, engaged) external returns(bool) {
@@ -319,8 +334,11 @@ contract Kandle {
         balances[burnsCollector] = balances[burnsCollector].add(burnsAmount);
         balances[msg.sender] = balances[msg.sender].sub(engaged);
 
-        _kandlersAddresses.push(msg.sender);
+        if (!_kandlersAddresses.contains(msg.sender)) {
+            _kandlersAddresses.push(msg.sender);
+        }
         _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged); // Increment engaged tokens
+        totalEngaged = totalEngaged.add(engaged);
 
         emit LightKandle(msg.sender, engaged);
         return true;
@@ -330,16 +348,20 @@ contract Kandle {
         require(block.timestamp - _currentPoolStartTimestamp >= _poolTime, 'Ending date not reached yet!');
 
         // Save end pool timestamp
+        _poolInProgress = false;
         uint256 currentPoolEndTimestamp = block.timestamp;
         
         // Refuel rewards/fuel collector
-        uint256 collectedRewards = balances[feesCollector] + balances[ashesCollector];
+        uint256 collectedTxFees = balances[feesCollector];
+        uint256 collectedAshes = balances[ashesCollector];
+        uint256 collectedRewards = collectedTxFees.add(collectedAshes);
+        balances[feesCollector] = balances[feesCollector].sub(collectedTxFees);
+        balances[ashesCollector] = balances[ashesCollector].sub(collectedAshes);
+        
         uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(100);
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
         balances[rewardsCollector] = balances[rewardsCollector].add(distributedRewards);
         balances[fuelCollector] = balances[fuelCollector].add(rewardsTxFeesAmount);
-        balances[feesCollector] = 0;
-        balances[ashesCollector] = 0;
         
         // Estimate top kandlers count
         uint potentialTopKandlers = _topKandlersCount; // Max by default
@@ -380,40 +402,38 @@ contract Kandle {
         }
 
         // Refuel fuel collector after rewards process
-        if (balances[rewardsCollector] > 0) {
-            balances[fuelCollector] = balances[fuelCollector].add(balances[rewardsCollector]);
-            balances[rewardsCollector] = 0;
+        uint256 leftRewards = balances[rewardsCollector];
+        if (leftRewards > 0) {
+            balances[fuelCollector] = balances[fuelCollector].add(leftRewards);
+            balances[rewardsCollector] = balances[rewardsCollector].sub(leftRewards);
         }
 
         // Empty burns collector
         uint256 burned = balances[burnsCollector];
         totalSupply = totalSupply.sub(burned);
-        balances[burnsCollector] = 0;
-        // TODO: Should we approve allowance first? Needs to be tested
-
-        emit Transfer(burnsCollector, eaterAddress, burned);
+        allowances[burnsCollector][msg.sender] = burned;
+        transferFrom(burnsCollector, eaterAddress, burned);
+        allowances[burnsCollector][msg.sender] = 0; // TODO: Need to be tested!!! Check if allowance should be reset to 0
 
         // Save/reset pool
-        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, topKandlers);
+        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, totalEngaged, topKandlers);
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
         }
         delete _kandlersAddresses;
-        _poolInProgress = false;
+        totalEngaged = 0;
+
+        // TODO: Launch pool automatically if maintenance mode is not enabled
     }
 
     function amongTopKandlers(TopKandler[] memory topKandlers, address target) private pure returns(bool) {
-        bool addressExists = false;
-        uint counter = 0;
-        while(!addressExists && (counter < topKandlers.length)) {
-            if (topKandlers[counter].addr == target) {
-                addressExists = true;
+        for (uint i = 0; i < topKandlers.length; i++) {
+            if (topKandlers[i].addr == target) {
+                return true;
             }
-
-            counter++;
         }
 
-        return addressExists;
+        return false;
     }
     
     function burn(uint256 value) hasBalance(msg.sender, value) burnable(value) public {
