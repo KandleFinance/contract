@@ -131,10 +131,10 @@ contract Kandle {
 
     // Manage fees
     uint private constant _txFeesMaxVal = 10;
-    uint private constant _poolAshesMaxVal = 70;
+    uint private constant _poolBurnsMaxVal = 50;
     uint private constant _rewardTxFeesMaxVal = 10;
     uint private _txFees = 10;
-    uint private _poolAshes = 70;
+    uint private _poolBurns = 30;
     uint private _rewardTxFees = 10;
 
     // Manage pools
@@ -158,6 +158,7 @@ contract Kandle {
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event LightKandle(address indexed kandler, uint256 value);
     event Reward(address indexed kandler, uint256 value);
+    event Burn(address indexed from, address indexed to, uint256 value);
     
     constructor() {
         _superAdmin = msg.sender;
@@ -172,8 +173,7 @@ contract Kandle {
         balances[fuelCollector] = 0;
     }
 
-    modifier onlySuperAdmin(/*string memory secret*/) {
-        //require(secret == "6f1080e05794fa1869d5053a1ea4d095daee2957e9a259d902ccb6ff1bb86ccc", 'Secret key is not correct');
+    modifier onlySuperAdmin() {
         require(msg.sender == _superAdmin, 'Address is not allowed');
         _;
     }
@@ -284,12 +284,11 @@ contract Kandle {
         _txFees = newTxFees;
     }
 
-    // TODO: Invert ashes and burns percentage. Ref = 50, start with 30 %
-    function updatePoolAshes(uint newPoolAshes) onlySuperAdmin() aboveZero(newPoolAshes) external {
+    function updatePoolBurns(uint newPoolBurns) onlySuperAdmin() aboveZero(newPoolBurns) external {
         require(!poolInProgress(), 'A pool is already in progress!');
-        require(newPoolAshes <= _poolAshesMaxVal, 'New ashes exceed maximum value!');
+        require(newPoolBurns <= _poolBurnsMaxVal, 'New burns exceed maximum value!');
 
-        _poolAshes = newPoolAshes;
+        _poolBurns = newPoolBurns;
     }
 
     function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() aboveZero(newRewardsTxFees) external {
@@ -326,8 +325,8 @@ contract Kandle {
         require(!isExcluded(), 'Kandler is excluded from this pool');
 
         // Compute ashes
-        uint256 ashesAmount = engaged.mul(_poolAshes).div(100);
-        uint256 burnsAmount = engaged.sub(ashesAmount);
+        uint256 burnsAmount = engaged.mul(_poolBurns).div(100);
+        uint256 ashesAmount = engaged.sub(burnsAmount);
 
         // Refuel collectors
         balances[ashesCollector] = balances[ashesCollector].add(ashesAmount);
@@ -408,13 +407,6 @@ contract Kandle {
             balances[rewardsCollector] = balances[rewardsCollector].sub(leftRewards);
         }
 
-        // Empty burns collector
-        uint256 burned = balances[burnsCollector];
-        totalSupply = totalSupply.sub(burned);
-        allowances[burnsCollector][msg.sender] = burned;
-        transferFrom(burnsCollector, eaterAddress, burned);
-        allowances[burnsCollector][msg.sender] = 0; // TODO: Need to be tested!!! Check if allowance should be reset to 0
-
         // Save/reset pool
         _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, totalEngaged, topKandlers);
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
@@ -423,7 +415,11 @@ contract Kandle {
         delete _kandlersAddresses;
         totalEngaged = 0;
 
-        // TODO: Launch pool automatically if maintenance mode is not enabled
+        // Burn collected tokens
+        uint256 burned = balances[burnsCollector];
+        totalSupply = totalSupply.sub(burned);
+        balances[burnsCollector] = balances[burnsCollector].sub(burned);
+        emit Burn(burnsCollector, eaterAddress, burned);
     }
 
     function amongTopKandlers(TopKandler[] memory topKandlers, address target) private pure returns(bool) {
