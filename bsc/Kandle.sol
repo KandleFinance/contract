@@ -95,6 +95,7 @@ contract Kandle {
         uint256 totalEngaged;
         uint256 totalBurned;
         TopKandler[] topKandlers;
+        bool votingEnabled;
     }
     
     // Define token properties
@@ -154,6 +155,12 @@ contract Kandle {
     mapping(address => uint256) private _kandlers;
     mapping(address => TopKandler) private _topKandlers;
     mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
+
+    // Manage voting
+    uint256 private constant _voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
+    address[] private _increaseWaxVoters;
+    uint private constant _maxAllowedIncreaseFuel = 50; // max percentage from fees collector to be added in a pool
+    bool public isVotingEnabled;
 
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -364,6 +371,17 @@ contract Kandle {
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
         balances[rewardsCollector] = balances[rewardsCollector].add(distributedRewards);
         balances[fuelCollector] = balances[fuelCollector].add(rewardsTxFeesAmount);
+
+        // Increase wax if possible (depending on votes result)
+        if (isVotingEnabled) {
+            uint256 increaseWaxWeight = _increaseWaxVoters.length.div(_kandlersAddresses.length);
+            uint256 maxAllowedIncreaseValue = balances[feesCollector].mul(_maxAllowedIncreaseFuel).div(100);
+            uint256 increasedWaxValue = increaseWaxWeight.mul(maxAllowedIncreaseValue);
+            if (balances[feesCollector] >= increasedWaxValue) {
+                balances[rewardsCollector] = balances[rewardsCollector].add(increasedWaxValue);
+                balances[feesCollector] = balances[feesCollector].sub(increasedWaxValue);
+            }
+        }
         
         // Estimate top kandlers count
         uint potentialTopKandlers = _topKandlersCount; // Max by default
@@ -412,12 +430,23 @@ contract Kandle {
 
         // Save/reset pool
         uint256 totalBurned = balances[burnsCollector];
-        _pools[_currentPoolId] = Pool(_currentPoolId, _currentPoolStartTimestamp, currentPoolEndTimestamp, _kandlersAddresses.length, totalEngaged, totalBurned, topKandlers);
+        _pools[_currentPoolId] = Pool(
+            _currentPoolId,
+            _currentPoolStartTimestamp,
+            currentPoolEndTimestamp,
+            _kandlersAddresses.length,
+            totalEngaged,
+            totalBurned,
+            topKandlers,
+            isVotingEnabled
+        );
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
         }
         delete _kandlersAddresses;
         totalEngaged = 0;
+        delete _increaseWaxVoters;
+        isVotingEnabled = false;
 
         // Burn collected tokens
         totalSupply = totalSupply.sub(totalBurned);
@@ -433,6 +462,23 @@ contract Kandle {
         }
 
         return false;
+    }
+
+    // Vote to increase wax
+    function enableIncreaseWax() isKandler(msg.sender) external {
+        require(poolInProgress(), 'No pool is launched yet!');
+        require(block.timestamp - _currentPoolStartTimestamp >= (_poolTime - _voteTimeThreshold), 'Voting cannot be enabled');
+
+        isVotingEnabled = true;
+    }
+
+    function letsIncreaseWax() isKandler(msg.sender) external {
+        require(poolInProgress(), 'No pool is launched yet!');
+        require(isVotingEnabled, 'Voting is not enabled yet!');
+
+        if (!_increaseWaxVoters.contains(msg.sender)) {
+            _increaseWaxVoters.push(msg.sender);
+        }
     }
     
     function burn(uint256 value) hasBalance(msg.sender, value) burnable(value) public {
