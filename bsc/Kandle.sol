@@ -57,7 +57,7 @@ library SafeMath {
     }
 }
 
-library ArrayUtilities {
+library AddressesUtils {
 
     function contains(address[] memory addresses, address target) internal pure returns(bool) {
         for (uint i = 0; i < addresses.length; i++) {
@@ -73,7 +73,7 @@ library ArrayUtilities {
 contract Kandle {
 
     using SafeMath for uint256;
-    using ArrayUtilities for address[];
+    using AddressesUtils for address[];
 
     enum TopKandlerType {
         REWARDED,
@@ -95,7 +95,6 @@ contract Kandle {
         uint256 totalEngaged;
         uint256 totalBurned;
         TopKandler[] topKandlers;
-        bool votingEnabled;
     }
     
     // Define token properties
@@ -159,8 +158,7 @@ contract Kandle {
     // Manage voting
     uint256 private constant _voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
     address[] private _increaseWaxVoters;
-    uint private constant _maxAllowedIncreaseFuel = 50; // max percentage from fees collector to be added in a pool
-    bool public isVotingEnabled;
+    uint private constant _maxAllowedIncreasedFuel = 50; // max percentage from fees collector to be added in a pool
 
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -373,14 +371,15 @@ contract Kandle {
         balances[fuelCollector] = balances[fuelCollector].add(rewardsTxFeesAmount);
 
         // Increase wax if possible (depending on votes result)
-        if (isVotingEnabled) {
-            uint256 increaseWaxWeight = _increaseWaxVoters.length.div(_kandlersAddresses.length);
-            uint256 maxAllowedIncreaseValue = balances[feesCollector].mul(_maxAllowedIncreaseFuel).div(100);
-            uint256 increasedWaxValue = increaseWaxWeight.mul(maxAllowedIncreaseValue);
-            if (balances[feesCollector] >= increasedWaxValue) {
-                balances[rewardsCollector] = balances[rewardsCollector].add(increasedWaxValue);
-                balances[feesCollector] = balances[feesCollector].sub(increasedWaxValue);
-            }
+        uint256 waxReferenceValue = balances[rewardsCollector].mul(4);
+        if (_increaseWaxVoters.length > 0 && balances[fuelCollector] >= waxReferenceValue) {
+            uint256 maxAllowedIncreasedWax = balances[fuelCollector].mul(_maxAllowedIncreasedFuel).div(100); // Max increased wax 50% of the fuel collector
+            uint256 increasedWaxWeight = _increaseWaxVoters.length.div(_kandlersAddresses.length); // Weight = voters / kandlers 
+            uint256 increasedWaxValue = increasedWaxWeight.mul(maxAllowedIncreasedWax); // Compute weighted rewards
+
+            // Refuel rewards
+            balances[rewardsCollector] = balances[rewardsCollector].add(increasedWaxValue);
+            balances[fuelCollector] = balances[fuelCollector].sub(increasedWaxValue);
         }
         
         // Estimate top kandlers count
@@ -404,7 +403,7 @@ contract Kandle {
                 }
             }
 
-            // Reward top kandler
+            // Reward top kandlers
             uint256 maxRewards = topKandlers[i].engaged.mul(_rewardsMultiplier);
             if (balances[rewardsCollector] >= maxRewards) {
                 // The kandler will have max rewards
@@ -415,11 +414,13 @@ contract Kandle {
                 
                 emit Reward(_kandlersAddresses[topKandlerIndex], maxRewards);
             } else {
-                // Could not max rewards to this top kandler
+                // Could not give max rewards to this top kandler
                 // TODO: Should we give the rest to this kandler ???
                 topKandlers[i] = TopKandler(_kandlersAddresses[topKandlerIndex], maxEngagedAmount, 0, TopKandlerType.UNREWARDED);
             }
         }
+
+        // TODO: Reward unrewarded kandlers
 
         // Refuel fuel collector after rewards process
         uint256 leftRewards = balances[rewardsCollector];
@@ -437,8 +438,7 @@ contract Kandle {
             _kandlersAddresses.length,
             totalEngaged,
             totalBurned,
-            topKandlers,
-            isVotingEnabled
+            topKandlers
         );
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
@@ -446,7 +446,6 @@ contract Kandle {
         delete _kandlersAddresses;
         totalEngaged = 0;
         delete _increaseWaxVoters;
-        isVotingEnabled = false;
 
         // Burn collected tokens
         totalSupply = totalSupply.sub(totalBurned);
@@ -465,16 +464,20 @@ contract Kandle {
     }
 
     // Vote to increase wax
-    function enableIncreaseWax() isKandler(msg.sender) external {
+    function canIncreaseWax() isKandler(msg.sender) public view returns(uint) {
         require(poolInProgress(), 'No pool is launched yet!');
-        require(block.timestamp - _currentPoolStartTimestamp >= (_poolTime - _voteTimeThreshold), 'Voting cannot be enabled');
 
-        isVotingEnabled = true;
+        // Check if voting time
+        if (block.timestamp - _currentPoolStartTimestamp >= (_poolTime - _voteTimeThreshold)) {
+            return 0;
+        } else {
+            return _poolTime + _currentPoolStartTimestamp - _voteTimeThreshold - block.timestamp; // 172800 + pool start time - 1800 - call time (block.timestamp)
+        }
     }
 
     function letsIncreaseWax() isKandler(msg.sender) external {
         require(poolInProgress(), 'No pool is launched yet!');
-        require(isVotingEnabled, 'Voting is not enabled yet!');
+        require(canIncreaseWax() == 0, 'Voting is not enabled yet!');
 
         if (!_increaseWaxVoters.contains(msg.sender)) {
             _increaseWaxVoters.push(msg.sender);
