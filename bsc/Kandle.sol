@@ -122,6 +122,7 @@ contract Kandle {
     // Manage Admins
     address private _superAdmin;
     mapping(address => bool) private _admins;
+    bytes32 private _secret = 0x86357a7cc9adf5e6904dff036878d545dabdd24f531b31a82e59f88ad0ec2d31;
     
     // Manage token supply
     mapping(address => uint256) public balances;
@@ -174,18 +175,19 @@ contract Kandle {
         balances[fuelCollector] = 0;
     }
 
-    modifier onlySuperAdmin() {
-        require(msg.sender == _superAdmin, 'Address is not allowed');
+    modifier onlySuperAdmin(string memory secret) {
+        require(msg.sender == _superAdmin, 'Address is not allowed!');
+        require(keccak256(bytes(secret)) == _secret, 'Secret key is incorrect!');
         _;
     }
 
     modifier onlyAdmin() {
-        require(msg.sender == _superAdmin || _admins[msg.sender], 'Address is not allowed');
+        require(msg.sender == _superAdmin || _admins[msg.sender], 'Address is not allowed!');
         _;
     }
 
     modifier aboveZero(uint256 value) {
-        require(value > 0, 'Zero value not accepted');
+        require(value > 0, 'Zero value not accepted!');
         _;
     }
 
@@ -253,12 +255,12 @@ contract Kandle {
     }
 
     // Register an admin
-    function registerAdmin(address target) onlySuperAdmin() external {
+    function registerAdmin(address target, string memory secret) onlySuperAdmin(secret) external {
         _admins[target] = true;
     }
 
     // Unregister an admin
-    function unregisterAdmin(address target) onlySuperAdmin() external {
+    function unregisterAdmin(address target, string memory secret) onlySuperAdmin(secret) external {
         require(_admins[target], 'Admin does not exist or already unregistered!');
 
         _admins[target] = false;
@@ -278,21 +280,21 @@ contract Kandle {
     }
 
     // Manage ecosystem fees
-    function updateTxFees(uint newTxFees) onlySuperAdmin() aboveZero(newTxFees) external {
+    function updateTxFees(uint newTxFees, string memory secret) onlySuperAdmin(secret) aboveZero(newTxFees) external {
         require(!poolInProgress(), 'A pool is already in progress!');
         require(newTxFees <= _txFeesMaxVal, 'New fees exceed maximum value!');
 
         _txFees = newTxFees;
     }
 
-    function updatePoolBurns(uint newPoolBurns) onlySuperAdmin() aboveZero(newPoolBurns) external {
+    function updatePoolBurns(uint newPoolBurns, string memory secret) onlySuperAdmin(secret) aboveZero(newPoolBurns) external {
         require(!poolInProgress(), 'A pool is already in progress!');
         require(newPoolBurns <= _poolBurnsMaxVal, 'New burns exceed maximum value!');
 
         _poolBurns = newPoolBurns;
     }
 
-    function updateRewardsTxFees(uint newRewardsTxFees) onlySuperAdmin() aboveZero(newRewardsTxFees) external {
+    function updateRewardsTxFees(uint newRewardsTxFees, string memory secret) onlySuperAdmin(secret) aboveZero(newRewardsTxFees) external {
         require(!poolInProgress(), 'A pool is already in progress!');
         require(newRewardsTxFees <= _rewardTxFeesMaxVal, 'New fees exceed maximum value!');
 
@@ -323,7 +325,7 @@ contract Kandle {
     function lightKandle(uint256 engaged) aboveZero(engaged) hasBalance(msg.sender, engaged) external returns(bool) {
         require(poolInProgress(), 'No pool is launched yet!');
         require(!isBlacklisted(), 'Kandler is blacklisted!');
-        require(!isExcluded(), 'Kandler is excluded from this pool');
+        require(!isExcluded(), 'Kandler is excluded from this pool!');
 
         // Compute ashes
         uint256 burnsAmount = engaged.mul(_poolBurns).div(100);
@@ -440,7 +442,7 @@ contract Kandle {
         emit Burn(msg.sender, eaterAddress, value);
     }
 
-    function kill() onlySuperAdmin() external {
+    function kill(string memory secret) onlySuperAdmin(secret) external {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
     }
