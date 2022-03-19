@@ -92,12 +92,6 @@ contract Kandle {
     using SafeMath for uint256;
     using AddressesUtils for address[];
 
-    struct TopKandler {
-        address addr;
-        uint256 engaged;
-        uint256 rewarded;
-    }
-
     struct Pool {
         uint256 id;
         uint256 startTS;
@@ -105,7 +99,6 @@ contract Kandle {
         uint256 kandlersCount;
         uint256 totalEngaged;
         uint256 totalBurned;
-        TopKandler[] topKandlers;
     }
 
     // Define token properties
@@ -158,7 +151,6 @@ contract Kandle {
     uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
-    TopKandler[] private topKandlers;
     mapping(uint256 => Pool) private _pools;
     uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTimestamp;
@@ -167,7 +159,6 @@ contract Kandle {
 
     address[] private _kandlersAddresses;
     mapping(address => uint256) private _kandlers;
-    mapping(address => TopKandler) private _topKandlers;
     mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
 
     // Manage voting
@@ -246,6 +237,11 @@ contract Kandle {
 
     modifier isKandler(address target) {
         require(_kandlers[target] > 0, "Not a kandler!");
+        _;
+    }
+
+    modifier poolInProgress() {
+        require(_poolInProgress, "No pool is launched yet!");
         _;
     }
 
@@ -337,7 +333,7 @@ contract Kandle {
         _blacklist[target] = blacklisted;
     }
 
-    function isExcluded() public view returns (bool) {
+    function excludedFromPool() public view returns (bool) {
         return _excludedKandlers[msg.sender].add(_poolSkips) <= _currentPoolId;
     }
 
@@ -382,10 +378,6 @@ contract Kandle {
     }
 
     // Manage pools
-    function poolInProgress() public view returns (bool) {
-        return _poolInProgress;
-    }
-
     function getPoolData(uint256 id) external view returns (Pool memory) {
         return _pools[id];
     }
@@ -409,13 +401,13 @@ contract Kandle {
 
     function lightKandle(uint256 engaged)
         external
+        poolInProgress
         aboveZero(engaged)
         hasBalance(msg.sender, engaged)
         returns (bool)
     {
-        require(poolInProgress(), "No pool is launched yet!");
         require(!isBlacklisted(), "Kandler is blacklisted!");
-        require(!isExcluded(), "Kandler is excluded from this pool!");
+        require(!excludedFromPool(), "Kandler is excluded from this pool!");
 
         // Compute ashes
         uint256 burnsAmount = engaged.mul(_poolBurns).div(100);
@@ -504,7 +496,11 @@ contract Kandle {
             );
         }
 
-        address[] memory rewardedKandlers = new address[](_kandlersAddresses.length);
+        // TODO: Save pool statistics and send them to compute rewards in backend
+
+        /*address[] memory rewardedKandlers = new address[](
+            _kandlersAddresses.length
+        );
         for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
             uint256 topKandlerIndex = 0;
             uint256 maxEngagedAmount = 0;
@@ -512,7 +508,10 @@ contract Kandle {
             for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
                 // Who has engaged more tokens and wasn't already added
                 address target = _kandlersAddresses[j];
-                if (!rewardedKandlers.contains(target) && _kandlers[target] > maxEngagedAmount) {
+                if (
+                    !rewardedKandlers.contains(target) &&
+                    _kandlers[target] > maxEngagedAmount
+                ) {
                     topKandlerIndex = j;
                     maxEngagedAmount = _kandlers[target];
                 }
@@ -600,9 +599,6 @@ contract Kandle {
                 leftRewards
             );
         }
-
-        // Save/reset pool
-        uint256 totalBurned = balances[burnsCollector];
         _pools[_currentPoolId] = Pool(
             _currentPoolId,
             _currentPoolStartTimestamp,
@@ -612,29 +608,68 @@ contract Kandle {
             totalBurned,
             topKandlers
         );
+        */
+
+        // Reset pool
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
         }
         delete _kandlersAddresses;
-        delete topKandlers;
         totalEngaged = 0;
         delete _increaseWaxVoters;
 
         // Burn collected tokens
+        uint256 totalBurned = balances[burnsCollector];
         totalSupply = totalSupply.sub(totalBurned);
         balances[burnsCollector] = balances[burnsCollector].sub(totalBurned);
         emit Burn(burnsCollector, eaterAddress, totalBurned);
+    }
+
+    function rewardKandler(
+        address kandlerAddress,
+        bool topRewarded,
+        uint256 rewards
+    )
+        external
+        onlyAdmin
+        isKandler(kandlerAddress)
+        aboveZero(rewards)
+        returns (bool)
+    {
+        require(
+            balances[rewardsCollector] > rewards,
+            "Insufficient rewards balance"
+        );
+
+        balances[kandlerAddress] = balances[kandlerAddress].add(rewards);
+        balances[rewardsCollector] = balances[rewardsCollector].sub(rewards);
+
+        // Emit event only for max rewarded kandlers
+        if (topRewarded) {
+            // Exclude top kandler from the next x pools
+            _excludedKandlers[kandlerAddress] = _currentPoolId;
+
+            /*topKandlers.push(
+                TopKandler(
+                    _kandlersAddresses[topKandlerIndex],
+                    maxEngagedAmount,
+                    rewards
+                )
+            );*/
+            emit Reward(kandlerAddress, rewards);
+        }
+
+        return true;
     }
 
     // Vote to increase wax
     function canIncreaseWax()
         public
         view
+        poolInProgress
         isKandler(msg.sender)
         returns (uint256)
     {
-        require(poolInProgress(), "No pool is launched yet!");
-
         // Check if voting time
         if (
             block.timestamp - _currentPoolStartTimestamp >=
@@ -650,13 +685,19 @@ contract Kandle {
         }
     }
 
-    function letsIncreaseWax() external isKandler(msg.sender) {
-        require(poolInProgress(), "No pool is launched yet!");
+    function letsIncreaseWax() 
+        external 
+        poolInProgress
+        isKandler(msg.sender) 
+        returns(bool)
+    {
         require(canIncreaseWax() == 0, "Voting is not enabled yet!");
 
         if (!_increaseWaxVoters.contains(msg.sender)) {
             _increaseWaxVoters.push(msg.sender);
         }
+
+        return true;
     }
 
     function burn(uint256 value)
