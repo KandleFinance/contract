@@ -54,6 +54,22 @@ library SafeMath {
         require(b != 0);
         return a % b;
     }
+
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a < b) {
+            return a;
+        } else {
+            return b;
+        }
+    }
+
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a > b) {
+            return a;
+        } else {
+            return b;
+        }
+    }
 }
 
 library AddressesUtils {
@@ -76,16 +92,10 @@ contract Kandle {
     using SafeMath for uint256;
     using AddressesUtils for address[];
 
-    enum TopKandlerType {
-        REWARDED,
-        UNREWARDED
-    }
-
     struct TopKandler {
         address addr;
         uint256 engaged;
         uint256 rewarded;
-        TopKandlerType kandlerType;
     }
 
     struct Pool {
@@ -148,6 +158,7 @@ contract Kandle {
     uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
+    TopKandler[] private topKandlers;
     mapping(uint256 => Pool) private _pools;
     uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTimestamp;
@@ -493,87 +504,96 @@ contract Kandle {
             );
         }
 
-        // Estimate top kandlers count
-        uint256 potentialTopKandlers = _topKandlersCount; // Max by default
-        if (_kandlersAddresses.length < _topKandlersCount) {
-            potentialTopKandlers = _kandlersAddresses.length;
-        }
-
-        // Get top and sorted kandlers
-        TopKandler[] memory topKandlers = new TopKandler[](
-            potentialTopKandlers
-        );
-        for (uint8 i = 0; i < potentialTopKandlers; i++) {
+        address[] memory rewardedKandlers = new address[](_kandlersAddresses.length);
+        for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
             uint256 topKandlerIndex = 0;
             uint256 maxEngagedAmount = 0;
 
             for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
                 // Who has engaged more tokens and wasn't already added
                 address target = _kandlersAddresses[j];
-                if (
-                    (_kandlers[target] > maxEngagedAmount) &&
-                    !amongTopKandlers(topKandlers, target)
-                ) {
+                if (!rewardedKandlers.contains(target) && _kandlers[target] > maxEngagedAmount) {
                     topKandlerIndex = j;
                     maxEngagedAmount = _kandlers[target];
                 }
             }
 
+            // Compute rewards
+            address kandlerAddress = _kandlersAddresses[i];
+            bool isTopKandler = i < _topKandlersCount;
+            uint256 engagedAmount = _kandlers[kandlerAddress]; // Minimum 1x rewards
+
             // Reward top kandlers
-            uint256 maxRewards = topKandlers[i].engaged.mul(_topRewardsMultiplier);
-            if (balances[rewardsCollector] >= maxRewards) {
+            if (isTopKandler) {
+                uint256 rewards = engagedAmount;
+                uint256 maxRewards = engagedAmount.mul(_topRewardsMultiplier); // Maximum 2x rewards
+                if (balances[rewardsCollector] >= maxRewards) {
+                    rewards = maxRewards;
+                }
+
                 // The kandler will have max rewards
-                balances[topKandlers[i].addr] = balances[topKandlers[i].addr]
-                    .add(maxRewards);
-                balances[rewardsCollector] = balances[rewardsCollector].sub(
-                    maxRewards
-                );
-                _excludedKandlers[
-                    _kandlersAddresses[topKandlerIndex]
-                ] = _currentPoolId; // Exclude kandler from the next x pools
-                topKandlers[i] = TopKandler(
-                    _kandlersAddresses[topKandlerIndex],
-                    maxEngagedAmount,
-                    maxRewards,
-                    TopKandlerType.REWARDED
-                );
-
-                emit Reward(_kandlersAddresses[topKandlerIndex], maxRewards);
-            } else {
-                // Insufficient rewards balance
-                topKandlers[i] = TopKandler(
-                    _kandlersAddresses[topKandlerIndex],
-                    maxEngagedAmount,
-                    0,
-                    TopKandlerType.UNREWARDED
-                );
-            }
-        }
-
-        // TODO: Reward unrewarded kandlers if possible
-        uint256 leftRewards = balances[rewardsCollector];
-        for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
-            // Who has engaged more tokens and wasn't already added
-            address target = _kandlersAddresses[j];
-            uint256 engagedAmount = _kandlers[target];
-            uint256 weight = engagedAmount.div(totalEngaged); // Max 1 x multiplier 0.9 9000 / 10000
-            if (!amongTopKandlers(topKandlers, target)) {
-                // Compute rewards
-                uint256 computedRewards = weight.mul(leftRewards);
-                uint256 rewards = min(engagedAmount, computedRewards);
                 if (balances[rewardsCollector] >= rewards) {
-                    balances[target] = balances[target].add(
+                    balances[kandlerAddress] = balances[kandlerAddress].add(
+                        rewards
+                    );
+                    balances[rewardsCollector] = balances[rewardsCollector].sub(
+                        rewards
+                    );
+
+                    // Exclude top kandler from the next x pools
+                    _excludedKandlers[
+                        _kandlersAddresses[topKandlerIndex]
+                    ] = _currentPoolId;
+
+                    topKandlers.push(
+                        TopKandler(
+                            _kandlersAddresses[topKandlerIndex],
+                            maxEngagedAmount,
+                            rewards
+                        )
+                    );
+
+                    // Emit event only for max rewarded kandlers
+                    if (rewards == maxRewards) {
+                        emit Reward(
+                            _kandlersAddresses[topKandlerIndex],
+                            maxRewards
+                        );
+                    }
+
+                    rewardedKandlers[i] = kandlerAddress;
+                } else {
+                    // Break if no more balance
+                    break;
+                }
+            } else if (balances[rewardsCollector] > 0) {
+                // Reward kandlers
+                // Who has engaged more tokens and wasn't already added
+                uint256 weight = engagedAmount.div(totalEngaged); // Max 1 x multiplier 0.9 9000 / 10000
+
+                // Compute rewards
+                uint256 computedRewards = weight.mul(
+                    balances[rewardsCollector]
+                );
+                uint256 rewards = engagedAmount.min(computedRewards);
+                if (balances[rewardsCollector] >= rewards) {
+                    balances[kandlerAddress] = balances[kandlerAddress].add(
                         rewards
                     );
                     balances[rewardsCollector] = balances[rewardsCollector].sub(
                         rewards
                     );
                 }
+
+                rewardedKandlers[i] = kandlerAddress;
+            } else {
+                // Break if no more balance
+                break;
             }
         }
 
         // Refuel fuel collector after rewards process
-        leftRewards = balances[rewardsCollector];
+        uint256 leftRewards = balances[rewardsCollector];
         if (leftRewards > 0) {
             balances[fuelCollector] = balances[fuelCollector].add(leftRewards);
             balances[rewardsCollector] = balances[rewardsCollector].sub(
@@ -596,6 +616,7 @@ contract Kandle {
             delete _kandlers[_kandlersAddresses[j]];
         }
         delete _kandlersAddresses;
+        delete topKandlers;
         totalEngaged = 0;
         delete _increaseWaxVoters;
 
@@ -603,28 +624,6 @@ contract Kandle {
         totalSupply = totalSupply.sub(totalBurned);
         balances[burnsCollector] = balances[burnsCollector].sub(totalBurned);
         emit Burn(burnsCollector, eaterAddress, totalBurned);
-    }
-
-    function min(uint256 a, uint256 b) private pure returns(uint256) {
-        if (a < b) {
-            return a;
-        } else {
-            return b;
-        }
-    }
-
-    function amongTopKandlers(TopKandler[] memory topKandlers, address target)
-        private
-        pure
-        returns (bool)
-    {
-        for (uint256 i = 0; i < topKandlers.length; i++) {
-            if (topKandlers[i].addr == target) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     // Vote to increase wax
