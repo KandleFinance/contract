@@ -139,12 +139,12 @@ contract Kandle {
     mapping(address => bool) private _blacklist;
 
     // Manage fees
-    uint256 private constant _txFeesMaxVal = 10;
-    uint256 private constant _poolBurnsMaxVal = 50;
-    uint256 private constant _rewardTxFeesMaxVal = 10;
-    uint256 private _txFees = 10;
-    uint256 private _poolBurns = 20;
-    uint256 private _rewardTxFees = 10;
+    uint8 private constant _txFeesMaxVal = 10;
+    uint8 private constant _poolBurnsMaxVal = 50;
+    uint8 private constant _rewardTxFeesMaxVal = 10;
+    uint8 private _txFees = 10;
+    uint8 private _poolBurns = 20;
+    uint8 private _rewardTxFees = 10;
 
     // Manage pools
     uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
@@ -245,6 +245,11 @@ contract Kandle {
         _;
     }
 
+    modifier noPoolInProgress() {
+        require(!_poolInProgress, "A pool is already in progress!");
+        _;
+    }
+
     function getOwner() external view returns (address) {
         return _superAdmin;
     }
@@ -338,23 +343,23 @@ contract Kandle {
     }
 
     // Manage ecosystem fees
-    function updateTxFees(uint256 newTxFees, string memory secret)
+    function updateTxFees(uint8 newTxFees, string memory secret)
         external
         onlySuperAdmin(secret)
         aboveZero(newTxFees)
+        noPoolInProgress
     {
-        require(!poolInProgress(), "A pool is already in progress!");
         require(newTxFees <= _txFeesMaxVal, "New fees exceed maximum value!");
 
         _txFees = newTxFees;
     }
 
-    function updatePoolBurns(uint256 newPoolBurns, string memory secret)
+    function updatePoolBurns(uint8 newPoolBurns, string memory secret)
         external
         onlySuperAdmin(secret)
         aboveZero(newPoolBurns)
+        noPoolInProgress
     {
-        require(!poolInProgress(), "A pool is already in progress!");
         require(
             newPoolBurns <= _poolBurnsMaxVal,
             "New burns exceed maximum value!"
@@ -363,12 +368,12 @@ contract Kandle {
         _poolBurns = newPoolBurns;
     }
 
-    function updateRewardsTxFees(uint256 newRewardsTxFees, string memory secret)
+    function updateRewardsTxFees(uint8 newRewardsTxFees, string memory secret)
         external
         onlySuperAdmin(secret)
         aboveZero(newRewardsTxFees)
+        noPoolInProgress
     {
-        require(!poolInProgress(), "A pool is already in progress!");
         require(
             newRewardsTxFees <= _rewardTxFeesMaxVal,
             "New fees exceed maximum value!"
@@ -391,9 +396,11 @@ contract Kandle {
         return _kandlers[msg.sender];
     }
 
-    function launchKandle() external onlyAdmin {
-        require(!poolInProgress(), "A pool is already in progress!");
-
+    function launchKandle()
+        external
+        onlyAdmin
+        noPoolInProgress
+    {
         _currentPoolId++;
         _currentPoolStartTimestamp = block.timestamp;
         _poolInProgress = true;
@@ -436,7 +443,7 @@ contract Kandle {
 
         // Save end pool timestamp
         _poolInProgress = false;
-        uint256 currentPoolEndTimestamp = block.timestamp;
+        //uint256 currentPoolEndTimestamp = block.timestamp;
 
         // Refuel rewards/fuel collector
         uint256 collectedTxFees = balances[feesCollector];
@@ -627,19 +634,22 @@ contract Kandle {
 
     function rewardKandler(
         address kandlerAddress,
+        uint256 index,
         bool topRewarded,
         uint256 rewards
     )
         external
         onlyAdmin
-        isKandler(kandlerAddress)
         aboveZero(rewards)
+        isKandler(kandlerAddress)
         returns (bool)
     {
         require(
             balances[rewardsCollector] > rewards,
             "Insufficient rewards balance"
         );
+        require(_kandlersAddresses[index] == kandlerAddress, "Not correct"); // Secure address
+        //require(_kandlers[kandlerAddress] >= engaged, "Error!"); // TODO: Check if possible to know if the rewards are true
 
         balances[kandlerAddress] = balances[kandlerAddress].add(rewards);
         balances[rewardsCollector] = balances[rewardsCollector].sub(rewards);
@@ -661,6 +671,11 @@ contract Kandle {
 
         return true;
     }
+
+    // TODO: 
+    // - Function for statistics of pool (public)
+    // - Verify if the kandler was already rewarded
+    // - Secure reward kandler function
 
     // Vote to increase wax
     function canIncreaseWax()
@@ -715,4 +730,6 @@ contract Kandle {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
     }
+
+    receive() external payable {}
 }
