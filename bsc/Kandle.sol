@@ -396,11 +396,7 @@ contract Kandle {
         return _kandlers[msg.sender];
     }
 
-    function launchKandle()
-        external
-        onlyAdmin
-        noPoolInProgress
-    {
+    function launchKandle() external onlyAdmin noPoolInProgress {
         _currentPoolId++;
         _currentPoolStartTimestamp = block.timestamp;
         _poolInProgress = true;
@@ -648,8 +644,14 @@ contract Kandle {
             balances[rewardsCollector] > rewards,
             "Insufficient rewards balance"
         );
-        require(_kandlersAddresses[index] == kandlerAddress, "Not correct"); // Secure address
-        //require(_kandlers[kandlerAddress] >= engaged, "Error!"); // TODO: Check if possible to know if the rewards are true
+        require(
+            _kandlersAddresses[index] == kandlerAddress,
+            "Address not included in this pool!"
+        ); // Secure address
+        require(
+            rewards <= _kandlers[kandlerAddress].mul(_topRewardsMultiplier),
+            "Rewards exceed range!"
+        ); // verify rewards
 
         balances[kandlerAddress] = balances[kandlerAddress].add(rewards);
         balances[rewardsCollector] = balances[rewardsCollector].sub(rewards);
@@ -672,7 +674,7 @@ contract Kandle {
         return true;
     }
 
-    // TODO: 
+    // TODO:
     // - Function for statistics of pool (public)
     // - Verify if the kandler was already rewarded
     // - Secure reward kandler function
@@ -700,11 +702,11 @@ contract Kandle {
         }
     }
 
-    function letsIncreaseWax() 
-        external 
+    function letsIncreaseWax()
+        external
         poolInProgress
-        isKandler(msg.sender) 
-        returns(bool)
+        isKandler(msg.sender)
+        returns (bool)
     {
         require(canIncreaseWax() == 0, "Voting is not enabled yet!");
 
