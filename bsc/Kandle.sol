@@ -579,7 +579,7 @@ contract Kandle {
     {
         require(
             balances[rewardsCollector] >= rewards,
-            "Insufficient rewards balance"
+            "Insufficient rewards balance!"
         );
         require(
             _kandlersAddresses[index] == rewardedAddress,
