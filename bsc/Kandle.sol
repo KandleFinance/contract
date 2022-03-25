@@ -110,10 +110,10 @@ contract Kandle {
 
     // Manage token supply
     uint256 private constant _privateSaleAllowance = 12;
-    uint256 private constant _publicSaleAllowance = 30;
-    uint256 private constant _teamAllowance = 10;
-    uint256 private constant _treasuryAllowance = 40;
-    uint256 private constant _partnershipAllowance = 8;
+    uint8 private constant _publicSaleAllowance = 30;
+    uint8 private constant _teamAllowance = 10;
+    uint8 private constant _treasuryAllowance = 40;
+    uint8 private constant _partnershipAllowance = 8;
     address public treasuryReceiver =
         0x158d9359C28790cDcbA812428259fCa9388D92cD;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
@@ -158,6 +158,7 @@ contract Kandle {
     bool private _poolInProgress;
     uint256 private totalEngaged;
 
+    // Manage kandlers
     address[] private _kandlersAddresses;
     address[] private _rewardedKandlers;
     mapping(address => uint256) private _kandlers;
@@ -165,10 +166,10 @@ contract Kandle {
     mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
 
     // Manage voting
-    uint256 private constant _voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
+    uint32 private constant _voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
     address[] private _increaseWaxVoters;
-    uint256 private constant _maxAllowedIncreasedFuel = 50; // Max percentage from fuel collector to be added in a pool upon votes
-    uint256 private constant _increasedFuelFromPreviousPool = 20; // A constant percentage to be added from the previous pool left tokens
+    uint8 private constant _maxAllowedIncreasedFuel = 50; // Max percentage from fuel collector to be added in a pool upon votes
+    uint8 private constant _increasedFuelFromPreviousPool = 20; // A constant percentage to be added from the previous pool left tokens
 
     // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
