@@ -413,7 +413,7 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender].add(_poolSkips) > currentPoolId;
+        return _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
