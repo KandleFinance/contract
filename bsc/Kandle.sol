@@ -413,7 +413,7 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
+        return _excludedKandlers[msg.sender] > 0 && _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -520,6 +520,10 @@ contract Kandle {
 
         return (_kandlersAddresses, _kandlersEngagedAmounts);
     }
+
+    // TODO: function that returns :
+    // - Start TS
+    // - Engaged amounts
 
     function collectRewards() private returns (bool) {
         uint256 collectedTxFees = balances[feesCollector];
