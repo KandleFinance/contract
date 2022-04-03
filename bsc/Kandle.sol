@@ -155,8 +155,12 @@ contract Kandle {
     mapping(uint256 => Pool) private _pools;
     uint256 public currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTs;
+    uint256 private _totalEngaged;
+    uint256 private _totalBurned;
     bool private _poolInProgress;
-    uint256 private totalEngaged;
+    bool private _poolRewardsCollected;
+    bool private _poolTokensBurned;
+    bool private _poolSaved;
 
     // Manage kandlers
     address[] private _kandlersAddresses;
@@ -409,7 +413,7 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender].add(_poolSkips) <= currentPoolId;
+        return _excludedKandlers[msg.sender].add(_poolSkips) > currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -421,7 +425,11 @@ contract Kandle {
         delete _kandlersEngagedAmounts;
         delete _increaseWaxVoters;
         delete _rewardedKandlers;
-        totalEngaged = 0;
+        _totalEngaged = 0;
+        _totalBurned = 0;
+        _poolRewardsCollected = false;
+        _poolTokensBurned = false;
+        _poolSaved = false;
 
         // Launch pool
         currentPoolId++;
@@ -455,9 +463,9 @@ contract Kandle {
             _kandlersAddresses.push(msg.sender);
         }
         _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged); // Increment engaged tokens
-        totalEngaged = totalEngaged.add(engaged);
+        _totalEngaged = _totalEngaged.add(engaged);
 
-        emit LightKandle(msg.sender, engaged);
+        emit LightKandle(msg.sender, engaged); // Why event name not found
         return true;
     }
 
@@ -472,34 +480,43 @@ contract Kandle {
         );
 
         // Save end pool timestamp
-        uint256 currentPoolEndTs = block.timestamp;
         _poolInProgress = false;
 
         // Refuel rewards/fuel collector
-        collectRewards();
+        if (!_poolRewardsCollected) {
+            collectRewards();
+            _poolRewardsCollected = true;
+        }
 
-        // TODO: Should we put the event first? Should we take in consideration that this function can be called many times in case of an error?
         // Burn collected tokens
-        uint256 totalBurned = balances[burnsCollector];
-        totalSupply = totalSupply.sub(totalBurned);
-        balances[burnsCollector] = balances[burnsCollector].sub(totalBurned);
-        emit Burn(burnsCollector, eaterAddress, totalBurned);
-
-        // Extract engaged amounts
-        for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
-            _kandlersEngagedAmounts.push(_kandlers[_kandlersAddresses[i]]);
+        if (!_poolTokensBurned) {
+            _totalBurned = balances[burnsCollector];
+            totalSupply = totalSupply.sub(_totalBurned);
+            balances[burnsCollector] = balances[burnsCollector].sub(_totalBurned);
+            emit Burn(burnsCollector, eaterAddress, _totalBurned);
+            _poolTokensBurned = true;
         }
 
         // Save pool
-        _pools[currentPoolId] = Pool(
-            currentPoolId,
-            _currentPoolStartTs,
-            currentPoolEndTs,
-            _kandlersAddresses,
-            _kandlersEngagedAmounts,
-            totalEngaged,
-            totalBurned
-        );
+        if (!_poolSaved) {
+            // Extract engaged amounts
+            for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
+                _kandlersEngagedAmounts.push(_kandlers[_kandlersAddresses[i]]);
+            }
+
+            // Save pool
+            uint256 currentPoolEndTs = block.timestamp;
+            _pools[currentPoolId] = Pool(
+                currentPoolId,
+                _currentPoolStartTs,
+                currentPoolEndTs,
+                _kandlersAddresses,
+                _kandlersEngagedAmounts,
+                _totalEngaged,
+                _totalBurned
+            );
+            _poolSaved = true;
+        }
 
         return (_kandlersAddresses, _kandlersEngagedAmounts);
     }
