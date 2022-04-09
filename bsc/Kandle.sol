@@ -172,11 +172,6 @@ contract Kandle is Ownable {
     string public symbol = "KNDL";
 
     // Manage token supply
-    uint256 private constant _privateSaleAllowance = 12;
-    uint8 private constant _publicSaleAllowance = 30;
-    uint8 private constant _teamAllowance = 10;
-    uint8 private constant _treasuryAllowance = 40;
-    uint8 private constant _partnershipAllowance = 8;
     address public treasuryReceiver;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
 
@@ -251,6 +246,12 @@ contract Kandle is Ownable {
         burnsCollector = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
         rewardsCollector = 0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
         fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
+
+        uint256 _privateSaleAllowance = 12;
+        uint8 _publicSaleAllowance = 30;
+        uint8 _teamAllowance = 10;
+        uint8 _treasuryAllowance = 40;
+        uint8 _partnershipAllowance = 8;
 
         balances[treasuryReceiver] = totalSupply.mul(_treasuryAllowance).div(
             100
