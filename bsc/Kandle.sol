@@ -148,12 +148,12 @@ contract Kandle {
     uint8 private _rewardTxFees = 10;
 
     // Manage pools
+    uint32 public constant poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
-    uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
     mapping(uint256 => Pool) private _pools;
-    uint256 public currentPoolId; // Auto increment ID
+    uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTs;
     uint256 private _totalEngaged;
     uint256 private _totalBurned;
@@ -403,6 +403,10 @@ contract Kandle {
         return _pools[id];
     }
 
+    function getCurrentPoolData() external poolInProgress view returns (uint256, uint256, uint256) {
+        return (_currentPoolId, _currentPoolStartTs, _totalEngaged);
+    }
+
     function getEngagedTokens()
         external
         view
@@ -413,7 +417,7 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender] > 0 && _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
+        return _excludedKandlers[msg.sender] > 0 && _excludedKandlers[msg.sender].add(_poolSkips) >= _currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -432,7 +436,7 @@ contract Kandle {
         _poolSaved = false;
 
         // Launch pool
-        currentPoolId++;
+        _currentPoolId++;
         _currentPoolStartTs = block.timestamp;
         _poolInProgress = true;
 
@@ -465,7 +469,7 @@ contract Kandle {
         _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged); // Increment engaged tokens
         _totalEngaged = _totalEngaged.add(engaged);
 
-        emit LightKandle(msg.sender, engaged); // Why event name not found
+        emit LightKandle(msg.sender, engaged);
         return true;
     }
 
@@ -475,7 +479,7 @@ contract Kandle {
         returns (address[] memory, uint256[] memory)
     {
         require(
-            block.timestamp - _currentPoolStartTs >= _poolTime,
+            block.timestamp - _currentPoolStartTs >= poolTime,
             "Ending date not reached yet!"
         );
 
@@ -506,8 +510,8 @@ contract Kandle {
 
             // Save pool
             uint256 currentPoolEndTs = block.timestamp;
-            _pools[currentPoolId] = Pool(
-                currentPoolId,
+            _pools[_currentPoolId] = Pool(
+                _currentPoolId,
                 _currentPoolStartTs,
                 currentPoolEndTs,
                 _kandlersAddresses,
@@ -520,10 +524,6 @@ contract Kandle {
 
         return (_kandlersAddresses, _kandlersEngagedAmounts);
     }
-
-    // TODO: function that returns :
-    // - Start TS
-    // - Engaged amounts
 
     function collectRewards() private returns (bool) {
         uint256 collectedTxFees = balances[feesCollector];
@@ -622,7 +622,7 @@ contract Kandle {
         // Emit event only for top rewarded kandlers
         if (topRewarded) {
             // Exclude top kandler from the next x pools
-            _excludedKandlers[rewardedAddress] = currentPoolId;
+            _excludedKandlers[rewardedAddress] = _currentPoolId;
 
             emit Reward(rewardedAddress, rewards);
         }
@@ -641,12 +641,12 @@ contract Kandle {
         // Check if voting time
         if (
             block.timestamp - _currentPoolStartTs >=
-            (_poolTime - _voteTimeThreshold)
+            (poolTime - _voteTimeThreshold)
         ) {
             return 0;
         } else {
             return
-                _poolTime +
+                poolTime +
                 _currentPoolStartTs -
                 _voteTimeThreshold -
                 block.timestamp; // 172800 + pool start time - 1800 - call time (block.timestamp)
@@ -667,6 +667,8 @@ contract Kandle {
 
         return true;
     }
+
+    // TODO: Implement staking
 
     function burn(uint256 value)
         public
