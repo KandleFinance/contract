@@ -148,15 +148,19 @@ contract Kandle {
     uint8 private _rewardTxFees = 10;
 
     // Manage pools
+    uint32 public constant poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
-    uint32 private constant _poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
     mapping(uint256 => Pool) private _pools;
-    uint256 public currentPoolId; // Auto increment ID
+    uint256 private _currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTs;
+    uint256 private _totalEngaged;
+    uint256 private _totalBurned;
     bool private _poolInProgress;
-    uint256 private totalEngaged;
+    bool private _poolRewardsCollected;
+    bool private _poolTokensBurned;
+    bool private _poolSaved;
 
     // Manage kandlers
     address[] private _kandlersAddresses;
@@ -399,6 +403,10 @@ contract Kandle {
         return _pools[id];
     }
 
+    function getCurrentPoolData() external poolInProgress view returns (uint256, uint256, uint256) {
+        return (_currentPoolId, _currentPoolStartTs, _totalEngaged);
+    }
+
     function getEngagedTokens()
         external
         view
@@ -409,7 +417,7 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender].add(_poolSkips) <= currentPoolId;
+        return _excludedKandlers[msg.sender] > 0 && _excludedKandlers[msg.sender].add(_poolSkips) >= _currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -421,10 +429,14 @@ contract Kandle {
         delete _kandlersEngagedAmounts;
         delete _increaseWaxVoters;
         delete _rewardedKandlers;
-        totalEngaged = 0;
+        _totalEngaged = 0;
+        _totalBurned = 0;
+        _poolRewardsCollected = false;
+        _poolTokensBurned = false;
+        _poolSaved = false;
 
         // Launch pool
-        currentPoolId++;
+        _currentPoolId++;
         _currentPoolStartTs = block.timestamp;
         _poolInProgress = true;
 
@@ -455,7 +467,7 @@ contract Kandle {
             _kandlersAddresses.push(msg.sender);
         }
         _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged); // Increment engaged tokens
-        totalEngaged = totalEngaged.add(engaged);
+        _totalEngaged = _totalEngaged.add(engaged);
 
         emit LightKandle(msg.sender, engaged);
         return true;
@@ -467,39 +479,48 @@ contract Kandle {
         returns (address[] memory, uint256[] memory)
     {
         require(
-            block.timestamp - _currentPoolStartTs >= _poolTime,
+            block.timestamp - _currentPoolStartTs >= poolTime,
             "Ending date not reached yet!"
         );
 
         // Save end pool timestamp
-        uint256 currentPoolEndTs = block.timestamp;
         _poolInProgress = false;
 
         // Refuel rewards/fuel collector
-        collectRewards();
+        if (!_poolRewardsCollected) {
+            collectRewards();
+            _poolRewardsCollected = true;
+        }
 
-        // TODO: Should we put the event first? Should we take in consideration that this function can be called many times in case of an error?
         // Burn collected tokens
-        uint256 totalBurned = balances[burnsCollector];
-        totalSupply = totalSupply.sub(totalBurned);
-        balances[burnsCollector] = balances[burnsCollector].sub(totalBurned);
-        emit Burn(burnsCollector, eaterAddress, totalBurned);
-
-        // Extract engaged amounts
-        for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
-            _kandlersEngagedAmounts.push(_kandlers[_kandlersAddresses[i]]);
+        if (!_poolTokensBurned) {
+            _totalBurned = balances[burnsCollector];
+            totalSupply = totalSupply.sub(_totalBurned);
+            balances[burnsCollector] = balances[burnsCollector].sub(_totalBurned);
+            emit Burn(burnsCollector, eaterAddress, _totalBurned);
+            _poolTokensBurned = true;
         }
 
         // Save pool
-        _pools[currentPoolId] = Pool(
-            currentPoolId,
-            _currentPoolStartTs,
-            currentPoolEndTs,
-            _kandlersAddresses,
-            _kandlersEngagedAmounts,
-            totalEngaged,
-            totalBurned
-        );
+        if (!_poolSaved) {
+            // Extract engaged amounts
+            for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
+                _kandlersEngagedAmounts.push(_kandlers[_kandlersAddresses[i]]);
+            }
+
+            // Save pool
+            uint256 currentPoolEndTs = block.timestamp;
+            _pools[_currentPoolId] = Pool(
+                _currentPoolId,
+                _currentPoolStartTs,
+                currentPoolEndTs,
+                _kandlersAddresses,
+                _kandlersEngagedAmounts,
+                _totalEngaged,
+                _totalBurned
+            );
+            _poolSaved = true;
+        }
 
         return (_kandlersAddresses, _kandlersEngagedAmounts);
     }
@@ -601,7 +622,7 @@ contract Kandle {
         // Emit event only for top rewarded kandlers
         if (topRewarded) {
             // Exclude top kandler from the next x pools
-            _excludedKandlers[rewardedAddress] = currentPoolId;
+            _excludedKandlers[rewardedAddress] = _currentPoolId;
 
             emit Reward(rewardedAddress, rewards);
         }
@@ -620,12 +641,12 @@ contract Kandle {
         // Check if voting time
         if (
             block.timestamp - _currentPoolStartTs >=
-            (_poolTime - _voteTimeThreshold)
+            (poolTime - _voteTimeThreshold)
         ) {
             return 0;
         } else {
             return
-                _poolTime +
+                poolTime +
                 _currentPoolStartTs -
                 _voteTimeThreshold -
                 block.timestamp; // 172800 + pool start time - 1800 - call time (block.timestamp)
@@ -646,6 +667,8 @@ contract Kandle {
 
         return true;
     }
+
+    // TODO: Implement staking
 
     function burn(uint256 value)
         public
