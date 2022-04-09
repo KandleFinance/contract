@@ -468,6 +468,7 @@ contract Kandle is Ownable {
 
     // Manage pools
     function getPoolData(uint256 id) external view returns (Pool memory) {
+        require(id < _currentPoolId, "Invalid pool id!");
         return _pools[id];
     }
 
