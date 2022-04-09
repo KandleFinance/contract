@@ -88,7 +88,70 @@ library AddressesUtils {
     }
 }
 
-contract Kandle {
+contract Ownable {
+    address private _owner;
+    bytes32 private _secretHash;
+
+    event OwnershipRenounced(address indexed previousOwner);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
+
+    constructor() {
+        _owner = msg.sender;
+        _secretHash = 0x86357a7cc9adf5e6904dff036878d545dabdd24f531b31a82e59f88ad0ec2d31;
+    }
+
+    modifier onlyOwner(string memory secret) {
+        require(msg.sender == _owner, "Address is not allowed!");
+        require(
+            keccak256(bytes(secret)) == _secretHash,
+            "Secret key is incorrect!"
+        );
+        _;
+    }
+
+    function owner() internal view returns (address) {
+        return _owner;
+    }
+
+    function isOwner() public view returns (bool) {
+        return msg.sender == _owner;
+    }
+
+    function renounceOwnership(string memory secret) public onlyOwner(secret) {
+        emit OwnershipRenounced(_owner);
+        _owner = address(0);
+    }
+
+    function transferOwnership(address newOwner, string memory secret)
+        public
+        onlyOwner(secret)
+    {
+        require(newOwner != address(0), "Invalid new owner address!");
+
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+
+    function updateSecretHash(string memory oldSecret, string memory newSecret)
+        public
+        onlyOwner(oldSecret)
+        returns (bool)
+    {
+        require(
+            keccak256(bytes(oldSecret)) == _secretHash,
+            "Secret key is incorrect!"
+        );
+
+        bytes32 newSecretHash = keccak256(bytes(newSecret));
+        _secretHash = newSecretHash;
+        return true;
+    }
+}
+
+contract Kandle is Ownable {
     using SafeMath for uint256;
     using AddressesUtils for address[];
 
@@ -114,23 +177,18 @@ contract Kandle {
     uint8 private constant _teamAllowance = 10;
     uint8 private constant _treasuryAllowance = 40;
     uint8 private constant _partnershipAllowance = 8;
-    address public treasuryReceiver =
-        0x158d9359C28790cDcbA812428259fCa9388D92cD;
+    address public treasuryReceiver;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
 
     // Define collectors addresses
-    address public feesCollector = 0x5866f300771cAb38A8180ED1bC35a19ED3f223A7;
-    address public ashesCollector = 0x36f4de9BBbd72D84d2b6D53c2E79Bb879d37b6fa;
-    address public burnsCollector = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
-    address public rewardsCollector =
-        0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
-    address public fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
+    address public feesCollector;
+    address public ashesCollector;
+    address public burnsCollector;
+    address public rewardsCollector;
+    address public fuelCollector;
 
     // Manage Admins
-    address private _superAdmin;
     mapping(address => bool) private _admins;
-    bytes32 private _secretHash =
-        0x86357a7cc9adf5e6904dff036878d545dabdd24f531b31a82e59f88ad0ec2d31;
 
     // Manage token supply
     mapping(address => uint256) public balances;
@@ -187,7 +245,12 @@ contract Kandle {
     event Burn(address indexed from, address indexed to, uint256 value);
 
     constructor() {
-        _superAdmin = msg.sender;
+        treasuryReceiver = 0x158d9359C28790cDcbA812428259fCa9388D92cD;
+        feesCollector = 0x5866f300771cAb38A8180ED1bC35a19ED3f223A7;
+        ashesCollector = 0x36f4de9BBbd72D84d2b6D53c2E79Bb879d37b6fa;
+        burnsCollector = 0x7A90dD83b368D4D7176d0672c79147d3f04B3b65;
+        rewardsCollector = 0xb36FeC172E56eF545e44A9e3Ef965Dd029989902;
+        fuelCollector = 0x55E2D8D08DAABaB8eb71b814215479beE2837944;
 
         balances[treasuryReceiver] = totalSupply.mul(_treasuryAllowance).div(
             100
@@ -208,20 +271,8 @@ contract Kandle {
         balances[fuelCollector] = 0;
     }
 
-    modifier onlySuperAdmin(string memory secret) {
-        require(msg.sender == _superAdmin, "Address is not allowed!");
-        require(
-            keccak256(bytes(secret)) == _secretHash,
-            "Secret key is incorrect!"
-        );
-        _;
-    }
-
     modifier onlyAdmin() {
-        require(
-            msg.sender == _superAdmin || _admins[msg.sender],
-            "Address is not allowed!"
-        );
+        require(isOwner() || _admins[msg.sender], "Address is not allowed!");
         _;
     }
 
@@ -259,7 +310,7 @@ contract Kandle {
     }
 
     function getOwner() external view returns (address) {
-        return _superAdmin;
+        return owner();
     }
 
     function balanceOf(address owner) public view returns (uint256) {
@@ -313,20 +364,18 @@ contract Kandle {
         return true;
     }
 
-    // Register an admin
     function registerAdmin(address target, string memory secret)
         external
-        onlySuperAdmin(secret)
+        onlyOwner(secret)
         returns (bool)
     {
         _admins[target] = true;
         return true;
     }
 
-    // Unregister an admin
     function unregisterAdmin(address target, string memory secret)
         external
-        onlySuperAdmin(secret)
+        onlyOwner(secret)
         returns (bool)
     {
         require(
@@ -352,10 +401,28 @@ contract Kandle {
         return true;
     }
 
-    // Manage ecosystem fees
+    // Manage ecosystem
+    function setCollectors(
+        address treasury,
+        address fees,
+        address ashes,
+        address burns,
+        address rewards,
+        address fuel,
+        string memory secret
+    ) external onlyOwner(secret) returns (bool) {
+        treasuryReceiver = treasury;
+        feesCollector = fees;
+        ashesCollector = ashes;
+        burnsCollector = burns;
+        rewardsCollector = rewards;
+        fuelCollector = fuel;
+        return true;
+    }
+
     function updateTxFees(uint8 newTxFees, string memory secret)
         external
-        onlySuperAdmin(secret)
+        onlyOwner(secret)
         aboveZero(newTxFees)
         noPoolInProgress
         returns (bool)
@@ -368,7 +435,7 @@ contract Kandle {
 
     function updatePoolBurns(uint8 newPoolBurns, string memory secret)
         external
-        onlySuperAdmin(secret)
+        onlyOwner(secret)
         aboveZero(newPoolBurns)
         noPoolInProgress
         returns (bool)
@@ -384,7 +451,7 @@ contract Kandle {
 
     function updateRewardsTxFees(uint8 newRewardsTxFees, string memory secret)
         external
-        onlySuperAdmin(secret)
+        onlyOwner(secret)
         aboveZero(newRewardsTxFees)
         noPoolInProgress
         returns (bool)
@@ -403,7 +470,16 @@ contract Kandle {
         return _pools[id];
     }
 
-    function getCurrentPoolData() external poolInProgress view returns (uint256, uint256, uint256) {
+    function getCurrentPoolData()
+        external
+        view
+        poolInProgress
+        returns (
+            uint256,
+            uint256,
+            uint256
+        )
+    {
         return (_currentPoolId, _currentPoolStartTs, _totalEngaged);
     }
 
@@ -417,7 +493,9 @@ contract Kandle {
     }
 
     function excludedFromPool() public view returns (bool) {
-        return _excludedKandlers[msg.sender] > 0 && _excludedKandlers[msg.sender].add(_poolSkips) >= _currentPoolId;
+        return
+            _excludedKandlers[msg.sender] > 0 &&
+            _excludedKandlers[msg.sender].add(_poolSkips) >= _currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -496,7 +574,9 @@ contract Kandle {
         if (!_poolTokensBurned) {
             _totalBurned = balances[burnsCollector];
             totalSupply = totalSupply.sub(_totalBurned);
-            balances[burnsCollector] = balances[burnsCollector].sub(_totalBurned);
+            balances[burnsCollector] = balances[burnsCollector].sub(
+                _totalBurned
+            );
             emit Burn(burnsCollector, eaterAddress, _totalBurned);
             _poolTokensBurned = true;
         }
@@ -681,7 +761,7 @@ contract Kandle {
         emit Burn(msg.sender, eaterAddress, value);
     }
 
-    function kill(string memory secret) external onlySuperAdmin(secret) {
+    function kill(string memory secret) external onlyOwner(secret) {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
     }
