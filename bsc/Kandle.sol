@@ -206,7 +206,7 @@ contract Kandle is Ownable {
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
     mapping(uint256 => Pool) private _pools;
-    uint256 private _currentPoolId; // Auto increment ID
+    uint256 public currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTs;
     uint256 private _totalEngaged;
     uint256 private _totalBurned;
@@ -468,7 +468,7 @@ contract Kandle is Ownable {
 
     // Manage pools
     function getPoolData(uint256 id) external view returns (Pool memory) {
-        require(id < _currentPoolId, "Invalid pool id!");
+        require(id < currentPoolId, "Invalid pool id!");
         return _pools[id];
     }
 
@@ -476,13 +476,9 @@ contract Kandle is Ownable {
         external
         view
         poolInProgress
-        returns (
-            uint256,
-            uint256,
-            uint256
-        )
+        returns (uint256, uint256)
     {
-        return (_currentPoolId, _currentPoolStartTs, _totalEngaged);
+        return (_currentPoolStartTs, _totalEngaged);
     }
 
     function getEngagedTokens()
@@ -497,7 +493,7 @@ contract Kandle is Ownable {
     function excludedFromPool() public view returns (bool) {
         return
             _excludedKandlers[msg.sender] > 0 &&
-            _excludedKandlers[msg.sender].add(_poolSkips) >= _currentPoolId;
+            _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -516,7 +512,7 @@ contract Kandle is Ownable {
         _poolSaved = false;
 
         // Launch pool
-        _currentPoolId++;
+        currentPoolId++;
         _currentPoolStartTs = block.timestamp;
         _poolInProgress = true;
 
@@ -592,8 +588,8 @@ contract Kandle is Ownable {
 
             // Save pool
             uint256 currentPoolEndTs = block.timestamp;
-            _pools[_currentPoolId] = Pool(
-                _currentPoolId,
+            _pools[currentPoolId] = Pool(
+                currentPoolId,
                 _currentPoolStartTs,
                 currentPoolEndTs,
                 _kandlersAddresses,
@@ -704,7 +700,7 @@ contract Kandle is Ownable {
         // Emit event only for top rewarded kandlers
         if (topRewarded) {
             // Exclude top kandler from the next x pools
-            _excludedKandlers[rewardedAddress] = _currentPoolId;
+            _excludedKandlers[rewardedAddress] = currentPoolId;
 
             emit Reward(rewardedAddress, rewards);
         }
