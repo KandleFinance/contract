@@ -201,7 +201,7 @@ contract Kandle is Ownable {
     uint8 private _rewardTxFees = 10;
 
     // Manage pools
-    uint32 public constant poolTime = 172800; // Pool period in seconds (48h)
+    uint32 public poolTime = 172800; // Pool period in seconds (48h)
     uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
     uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
     uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
@@ -223,7 +223,7 @@ contract Kandle is Ownable {
     mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
 
     // Manage voting
-    uint32 private constant _voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
+    uint32 public voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
     address[] private _increaseWaxVoters;
     uint8 private constant _maxAllowedIncreasedFuel = 50; // Max percentage from fuel collector to be added in a pool upon votes
     uint8 private constant _increasedFuelFromPreviousPool = 20; // A constant percentage to be added from the previous pool left tokens
@@ -421,6 +421,26 @@ contract Kandle is Ownable {
         return true;
     }
 
+    function updatePoolTime(uint32 newPooltime, string memory secret)
+        external
+        onlyOwner(secret)
+        aboveZero(newPooltime)
+        returns (bool)
+    {
+        poolTime = newPooltime;
+        return true;
+    }
+
+    function updateVoteThreshold(uint32 newVoteThreshold, string memory secret)
+        external
+        onlyOwner(secret)
+        aboveZero(newVoteThreshold)
+        returns (bool)
+    {
+        voteTimeThreshold = newVoteThreshold;
+        return true;
+    }
+
     function updateTxFees(uint8 newTxFees, string memory secret)
         external
         onlyOwner(secret)
@@ -468,7 +488,7 @@ contract Kandle is Ownable {
 
     // Manage pools
     function getPoolData(uint256 id) external view returns (Pool memory) {
-        require(id < currentPoolId, "Invalid pool id!");
+        require(id <= currentPoolId, "Invalid pool id!");
         return _pools[id];
     }
 
@@ -719,14 +739,14 @@ contract Kandle is Ownable {
         // Check if voting time
         if (
             block.timestamp - _currentPoolStartTs >=
-            (poolTime - _voteTimeThreshold)
+            (poolTime - voteTimeThreshold)
         ) {
             return 0;
         } else {
             return
                 poolTime +
                 _currentPoolStartTs -
-                _voteTimeThreshold -
+                voteTimeThreshold -
                 block.timestamp; // 172800 + pool start time - 1800 - call time (block.timestamp)
         }
     }
