@@ -202,9 +202,9 @@ contract Kandle is Ownable {
 
     // Manage pools
     uint32 public poolTime = 172800; // Pool period in seconds (48h)
-    uint8 private constant _poolSkips = 2; // Top winner should skip 2 pools
-    uint8 private constant _topKandlersCount = 10; // Number of potential pool winners
-    uint8 private constant _topRewardsMultiplier = 2; // Multiplier for top kandler
+    uint8 public constant poolSkips = 2; // Top winner should skip 2 pools
+    uint8 public constant topKandlersCount = 10; // Number of potential pool winners
+    uint8 public constant topRewardsMultiplier = 2; // Multiplier for top kandler
     mapping(uint256 => Pool) private _pools;
     uint256 public currentPoolId; // Auto increment ID
     uint256 private _currentPoolStartTs;
@@ -513,7 +513,7 @@ contract Kandle is Ownable {
     function excludedFromPool() public view returns (bool) {
         return
             _excludedKandlers[msg.sender] > 0 &&
-            _excludedKandlers[msg.sender].add(_poolSkips) >= currentPoolId;
+            _excludedKandlers[msg.sender].add(poolSkips) >= currentPoolId;
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
@@ -705,7 +705,7 @@ contract Kandle is Ownable {
             "Address not included in this pool!"
         ); // Secure address
         require(
-            rewards <= _kandlers[rewardedAddress].mul(_topRewardsMultiplier),
+            rewards <= _kandlers[rewardedAddress].mul(topRewardsMultiplier),
             "Rewards exceed range!"
         ); // Verify rewards
         require(
