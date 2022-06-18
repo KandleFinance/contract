@@ -197,6 +197,7 @@ contract Kandle is Ownable {
     uint8 private constant _txFeesMaxVal = 10;
     uint8 private constant _poolBurnsMaxVal = 50;
     uint8 private constant _rewardTxFeesMaxVal = 10;
+    bool public feelessTxMode = false;
     uint8 public txFees = 10;
     uint8 public poolBurns = 20;
     uint8 public rewardTxFees = 10;
@@ -319,11 +320,16 @@ contract Kandle is Ownable {
     function transfer(address to, uint256 value) public returns (bool) {
         require(balances[msg.sender] >= value, "Balance is too low!");
 
-        uint256 txFeesAmount = value.mul(txFees).div(100);
-        uint256 reducedAmount = value.sub(txFeesAmount);
+        if (feelessTxMode) {
+            balances[to] = balances[to].add(value);
+        } else {
+            uint256 txFeesAmount = value.mul(txFees).div(100);
+            uint256 reducedAmount = value.sub(txFeesAmount);
 
-        balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
-        balances[to] = balances[to].add(reducedAmount);
+            balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
+            balances[to] = balances[to].add(reducedAmount);
+        }
+        
         balances[msg.sender] = balances[msg.sender].sub(value);
 
         emit Transfer(msg.sender, to, value);
@@ -341,11 +347,16 @@ contract Kandle is Ownable {
             "Insufficient allowance!"
         );
 
-        uint256 txFeesAmount = value.mul(txFees).div(100);
-        uint256 reducedAmount = value.sub(txFeesAmount);
+        if (feelessTxMode) {
+            balances[to] = balances[to].add(value);
+        } else {
+            uint256 txFeesAmount = value.mul(txFees).div(100);
+            uint256 reducedAmount = value.sub(txFeesAmount);
 
-        balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
-        balances[to] = balances[to].add(reducedAmount);
+            balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
+            balances[to] = balances[to].add(reducedAmount);
+        }
+        
         balances[from] = balances[from].sub(value);
 
         emit Transfer(from, to, value);
@@ -410,6 +421,15 @@ contract Kandle is Ownable {
         burnsCollector = burns;
         rewardsCollector = rewards;
         fuelCollector = fuel;
+        return true;
+    }
+
+    function updateFeelessTxMode(bool feelessTxModeEnabled, string memory secret)
+        external
+        onlyOwner(secret)
+        returns (bool)
+    {
+        feelessTxMode = feelessTxModeEnabled;
         return true;
     }
 
