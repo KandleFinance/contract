@@ -70,6 +70,14 @@ library SafeMath {
             return b;
         }
     }
+
+    function toDecimals(uint256 a) internal pure returns (uint256) {
+        return mul(a, 10**18);
+    }
+
+    function toDivider(uint256 a) internal pure returns (uint256) {
+        return div(a, 10**18);
+    }
 }
 
 library AddressesUtils {
@@ -165,48 +173,41 @@ contract Kandle is Ownable {
         uint256 totalBurned;
     }
 
-    // Define token properties
     uint256 public decimals = 18;
     uint256 public totalSupply = 9 * 10**9 * 10**decimals;
     string public name = "Kandle";
     string public symbol = "KNDL";
 
-    // Manage token supply
     address public treasuryReceiver;
     address public eaterAddress = 0x0000000000000000000000000000000000000000;
 
-    // Define collectors addresses
     address public feesCollector;
     address public ashesCollector;
     address public burnsCollector;
     address public rewardsCollector;
     address public fuelCollector;
 
-    // Manage Admins
     mapping(address => bool) private _admins;
 
-    // Manage token supply
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
 
-    // Manager users
     mapping(address => bool) private _blacklist;
 
-    // Manage fees
     uint8 private constant _txFeesMaxVal = 10;
     uint8 private constant _poolBurnsMaxVal = 50;
     uint8 private constant _rewardTxFeesMaxVal = 10;
-    uint8 private _txFees = 10;
-    uint8 private _poolBurns = 20;
-    uint8 private _rewardTxFees = 10;
+    uint8 public txFees = 10;
+    uint8 public poolBurns = 20;
+    uint8 public rewardTxFees = 10;
+    uint8 public waxReferenceMultiplier = 4;
 
-    // Manage pools
-    uint32 public poolTime = 172800; // Pool period in seconds (48h)
-    uint8 public constant poolSkips = 2; // Top winner should skip 2 pools
-    uint8 public constant topKandlersCount = 10; // Number of potential pool winners
-    uint8 public constant topRewardsMultiplier = 2; // Multiplier for top kandler
+    uint32 public poolTime = 172800;
+    uint8 public constant poolSkips = 2;
+    uint8 public constant topKandlersCount = 10;
+    uint8 public constant topRewardsMultiplier = 2;
     mapping(uint256 => Pool) private _pools;
-    uint256 public currentPoolId; // Auto increment ID
+    uint256 public currentPoolId;
     uint256 private _currentPoolStartTs;
     uint256 private _totalEngaged;
     uint256 private _totalBurned;
@@ -215,20 +216,17 @@ contract Kandle is Ownable {
     bool private _poolTokensBurned;
     bool private _poolSaved;
 
-    // Manage kandlers
     address[] private _kandlersAddresses;
     address[] private _rewardedKandlers;
     mapping(address => uint256) private _kandlers;
     uint256[] private _kandlersEngagedAmounts;
-    mapping(address => uint256) private _excludedKandlers; // Mapping (address => reference pool id)
+    mapping(address => uint256) private _excludedKandlers;
 
-    // Manage voting
-    uint32 public voteTimeThreshold = 1800; // Kandlers can only enable vote 30 min before the end time
+    uint32 public voteTimeThreshold = 1800;
     address[] private _increaseWaxVoters;
-    uint8 private constant _maxAllowedIncreasedFuel = 50; // Max percentage from fuel collector to be added in a pool upon votes
-    uint8 private constant _increasedFuelFromPreviousPool = 20; // A constant percentage to be added from the previous pool left tokens
+    uint8 private constant _maxAllowedIncreasedFuel = 50;
+    uint8 private constant _increasedFuelFromPreviousPool = 20;
 
-    // Manage events
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(
         address indexed owner,
@@ -321,11 +319,9 @@ contract Kandle is Ownable {
     function transfer(address to, uint256 value) public returns (bool) {
         require(balances[msg.sender] >= value, "Balance is too low!");
 
-        // Compute tx fees
-        uint256 txFeesAmount = value.mul(_txFees).div(100);
+        uint256 txFeesAmount = value.mul(txFees).div(100);
         uint256 reducedAmount = value.sub(txFeesAmount);
 
-        // Update balances
         balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
         balances[to] = balances[to].add(reducedAmount);
         balances[msg.sender] = balances[msg.sender].sub(value);
@@ -345,11 +341,9 @@ contract Kandle is Ownable {
             "Insufficient allowance!"
         );
 
-        // Compute tx fees
-        uint256 txFeesAmount = value.mul(_txFees).div(100);
+        uint256 txFeesAmount = value.mul(txFees).div(100);
         uint256 reducedAmount = value.sub(txFeesAmount);
 
-        // Update balances
         balances[feesCollector] = balances[feesCollector].add(txFeesAmount);
         balances[to] = balances[to].add(reducedAmount);
         balances[from] = balances[from].sub(value);
@@ -388,7 +382,6 @@ contract Kandle is Ownable {
         return true;
     }
 
-    // Manage exclusions
     function isBlacklisted() public view returns (bool) {
         return _blacklist[msg.sender];
     }
@@ -402,7 +395,6 @@ contract Kandle is Ownable {
         return true;
     }
 
-    // Manage ecosystem
     function setCollectors(
         address treasury,
         address fees,
@@ -450,7 +442,7 @@ contract Kandle is Ownable {
     {
         require(newTxFees <= _txFeesMaxVal, "New fees exceed maximum value!");
 
-        _txFees = newTxFees;
+        txFees = newTxFees;
         return true;
     }
 
@@ -466,7 +458,7 @@ contract Kandle is Ownable {
             "New burns exceed maximum value!"
         );
 
-        _poolBurns = newPoolBurns;
+        poolBurns = newPoolBurns;
         return true;
     }
 
@@ -482,11 +474,24 @@ contract Kandle is Ownable {
             "New fees exceed maximum value!"
         );
 
-        _rewardTxFees = newRewardsTxFees;
+        rewardTxFees = newRewardsTxFees;
         return true;
     }
 
-    // Manage pools
+    function updateWaxReferenceMultiplier(
+        uint8 newWaxReferenceMultiplier,
+        string memory secret
+    )
+        external
+        onlyOwner(secret)
+        aboveZero(newWaxReferenceMultiplier)
+        noPoolInProgress
+        returns (bool)
+    {
+        waxReferenceMultiplier = newWaxReferenceMultiplier;
+        return true;
+    }
+
     function getPoolData(uint256 id) external view returns (Pool memory) {
         require(id <= currentPoolId, "Invalid pool id!");
         return _pools[id];
@@ -517,7 +522,14 @@ contract Kandle is Ownable {
     }
 
     function launchKandle() external onlyAdmin noPoolInProgress returns (bool) {
-        // Reset pool data
+        if (balances[rewardsCollector] > 0) {
+            uint256 leftRewards = balances[rewardsCollector];
+            balances[rewardsCollector] = balances[rewardsCollector].sub(
+                leftRewards
+            );
+            balances[fuelCollector] = balances[fuelCollector].add(leftRewards);
+        }
+
         for (uint256 j = 0; j < _kandlersAddresses.length; j++) {
             delete _kandlers[_kandlersAddresses[j]];
         }
@@ -531,7 +543,6 @@ contract Kandle is Ownable {
         _poolTokensBurned = false;
         _poolSaved = false;
 
-        // Launch pool
         currentPoolId++;
         _currentPoolStartTs = block.timestamp;
         _poolInProgress = true;
@@ -548,21 +559,22 @@ contract Kandle is Ownable {
     {
         require(!isBlacklisted(), "Kandler is blacklisted!");
         require(!excludedFromPool(), "Kandler is excluded from this pool!");
+        require(
+            block.timestamp - _currentPoolStartTs <= poolTime,
+            "Ending date reached!"
+        );
 
-        // Compute ashes
-        uint256 burnsAmount = engaged.mul(_poolBurns).div(100);
+        uint256 burnsAmount = engaged.mul(poolBurns).div(100);
         uint256 ashesAmount = engaged.sub(burnsAmount);
 
-        // Refuel collectors
         balances[ashesCollector] = balances[ashesCollector].add(ashesAmount);
         balances[burnsCollector] = balances[burnsCollector].add(burnsAmount);
         balances[msg.sender] = balances[msg.sender].sub(engaged);
 
-        // Save kandler info
         if (!_kandlersAddresses.contains(msg.sender)) {
             _kandlersAddresses.push(msg.sender);
         }
-        _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged); // Increment engaged tokens
+        _kandlers[msg.sender] = _kandlers[msg.sender].add(engaged);
         _totalEngaged = _totalEngaged.add(engaged);
 
         emit LightKandle(msg.sender, engaged);
@@ -579,16 +591,13 @@ contract Kandle is Ownable {
             "Ending date not reached yet!"
         );
 
-        // Save end pool timestamp
         _poolInProgress = false;
 
-        // Refuel rewards/fuel collector
         if (!_poolRewardsCollected) {
             collectRewards();
             _poolRewardsCollected = true;
         }
 
-        // Burn collected tokens
         if (!_poolTokensBurned) {
             _totalBurned = balances[burnsCollector];
             totalSupply = totalSupply.sub(_totalBurned);
@@ -599,14 +608,11 @@ contract Kandle is Ownable {
             _poolTokensBurned = true;
         }
 
-        // Save pool
         if (!_poolSaved) {
-            // Extract engaged amounts
             for (uint256 i = 0; i < _kandlersAddresses.length; i++) {
                 _kandlersEngagedAmounts.push(_kandlers[_kandlersAddresses[i]]);
             }
 
-            // Save pool
             uint256 currentPoolEndTs = block.timestamp;
             _pools[currentPoolId] = Pool(
                 currentPoolId,
@@ -630,7 +636,7 @@ contract Kandle is Ownable {
         balances[feesCollector] = balances[feesCollector].sub(collectedTxFees);
         balances[ashesCollector] = balances[ashesCollector].sub(collectedAshes);
 
-        uint256 rewardsTxFeesAmount = collectedRewards.mul(_rewardTxFees).div(
+        uint256 rewardsTxFeesAmount = collectedRewards.mul(rewardTxFees).div(
             100
         );
         uint256 distributedRewards = collectedRewards.sub(rewardsTxFeesAmount);
@@ -641,23 +647,26 @@ contract Kandle is Ownable {
             rewardsTxFeesAmount
         );
 
-        // Increase wax depending on votes
-        uint256 waxReferenceValue = balances[rewardsCollector].mul(4);
+        uint256 waxReferenceValue = balances[rewardsCollector].mul(
+            waxReferenceMultiplier
+        );
         if (
             _increaseWaxVoters.length > 0 &&
             balances[fuelCollector] >= waxReferenceValue
         ) {
             uint256 maxAllowedIncreasedWax = balances[fuelCollector]
                 .mul(_maxAllowedIncreasedFuel)
-                .div(100); // Max increased wax 50% of the fuel collector
-            uint256 increasedWaxWeight = _increaseWaxVoters.length.div(
-                _kandlersAddresses.length
-            ); // Weight = voters / kandlers
-            uint256 increasedWaxValue = increasedWaxWeight.mul(
-                maxAllowedIncreasedWax
-            ); // Compute weighted rewards
+                .div(100);
 
-            // Refuel rewards
+            uint256 increasedWaxWeight = _increaseWaxVoters
+                .length
+                .toDecimals()
+                .div(_kandlersAddresses.length);
+
+            uint256 increasedWaxValue = increasedWaxWeight
+                .mul(maxAllowedIncreasedWax)
+                .toDivider();
+
             balances[rewardsCollector] = balances[rewardsCollector].add(
                 increasedWaxValue
             );
@@ -666,13 +675,11 @@ contract Kandle is Ownable {
             );
         }
 
-        // Increase wax from previous pools
         if (balances[fuelCollector] > 0) {
             uint256 increasedWaxFromPreviousPool = balances[fuelCollector]
                 .mul(_increasedFuelFromPreviousPool)
-                .div(100); // 20% from previous pool
+                .div(100);
 
-            // Refuel rewards
             balances[rewardsCollector] = balances[rewardsCollector].add(
                 increasedWaxFromPreviousPool
             );
@@ -703,23 +710,21 @@ contract Kandle is Ownable {
         require(
             _kandlersAddresses[index] == rewardedAddress,
             "Address not included in this pool!"
-        ); // Secure address
+        );
         require(
             rewards <= _kandlers[rewardedAddress].mul(topRewardsMultiplier),
             "Rewards exceed range!"
-        ); // Verify rewards
+        );
         require(
             !_rewardedKandlers.contains(rewardedAddress),
             "Kandler already rewarded!"
-        ); // Verify if already rewarded
+        );
 
         balances[rewardedAddress] = balances[rewardedAddress].add(rewards);
         balances[rewardsCollector] = balances[rewardsCollector].sub(rewards);
         _rewardedKandlers.push(rewardedAddress);
 
-        // Emit event only for top rewarded kandlers
         if (topRewarded) {
-            // Exclude top kandler from the next x pools
             _excludedKandlers[rewardedAddress] = currentPoolId;
 
             emit Reward(rewardedAddress, rewards);
@@ -728,7 +733,6 @@ contract Kandle is Ownable {
         return true;
     }
 
-    // Vote to increase wax
     function canIncreaseWax()
         public
         view
@@ -736,7 +740,6 @@ contract Kandle is Ownable {
         isKandler(msg.sender)
         returns (uint256)
     {
-        // Check if voting time
         if (
             block.timestamp - _currentPoolStartTs >=
             (poolTime - voteTimeThreshold)
@@ -747,7 +750,7 @@ contract Kandle is Ownable {
                 poolTime +
                 _currentPoolStartTs -
                 voteTimeThreshold -
-                block.timestamp; // 172800 + pool start time - 1800 - call time (block.timestamp)
+                block.timestamp;
         }
     }
 
@@ -765,8 +768,6 @@ contract Kandle is Ownable {
 
         return true;
     }
-
-    // TODO: Implement staking
 
     function burn(uint256 value)
         public
