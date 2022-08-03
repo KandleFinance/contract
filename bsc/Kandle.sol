@@ -98,7 +98,6 @@ library AddressesUtils {
 
 contract Ownable {
     address private _owner;
-    bytes32 private _secretHash;
 
     event OwnershipRenounced(address indexed previousOwner);
     event OwnershipTransferred(
@@ -108,15 +107,10 @@ contract Ownable {
 
     constructor() {
         _owner = msg.sender;
-        _secretHash = 0x86357a7cc9adf5e6904dff036878d545dabdd24f531b31a82e59f88ad0ec2d31;
     }
 
-    modifier onlyOwner(string memory secret) {
+    modifier onlyOwner() {
         require(msg.sender == _owner, "Address is not allowed!");
-        require(
-            keccak256(bytes(secret)) == _secretHash,
-            "Secret key is incorrect!"
-        );
         _;
     }
 
@@ -128,34 +122,19 @@ contract Ownable {
         return msg.sender == _owner;
     }
 
-    function renounceOwnership(string memory secret) public onlyOwner(secret) {
+    function renounceOwnership() public onlyOwner() {
         emit OwnershipRenounced(_owner);
         _owner = address(0);
     }
 
-    function transferOwnership(address newOwner, string memory secret)
+    function transferOwnership(address newOwner)
         public
-        onlyOwner(secret)
+        onlyOwner()
     {
         require(newOwner != address(0), "Invalid new owner address!");
 
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
-    }
-
-    function updateSecretHash(string memory oldSecret, string memory newSecret)
-        public
-        onlyOwner(oldSecret)
-        returns (bool)
-    {
-        require(
-            keccak256(bytes(oldSecret)) == _secretHash,
-            "Secret key is incorrect!"
-        );
-
-        bytes32 newSecretHash = keccak256(bytes(newSecret));
-        _secretHash = newSecretHash;
-        return true;
     }
 }
 
@@ -370,18 +349,18 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function registerAdmin(address target, string memory secret)
+    function registerAdmin(address target)
         external
-        onlyOwner(secret)
+        onlyOwner()
         returns (bool)
     {
         _admins[target] = true;
         return true;
     }
 
-    function unregisterAdmin(address target, string memory secret)
+    function unregisterAdmin(address target)
         external
-        onlyOwner(secret)
+        onlyOwner()
         returns (bool)
     {
         require(
@@ -412,9 +391,8 @@ contract Kandle is Ownable {
         address ashes,
         address burns,
         address rewards,
-        address fuel,
-        string memory secret
-    ) external onlyOwner(secret) returns (bool) {
+        address fuel
+    ) external onlyOwner() returns (bool) {
         treasuryReceiver = treasury;
         feesCollector = fees;
         ashesCollector = ashes;
@@ -424,18 +402,18 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function updateFeelessTxMode(bool feelessTxModeEnabled, string memory secret)
+    function updateFeelessTxMode(bool feelessTxModeEnabled)
         external
-        onlyOwner(secret)
+        onlyOwner()
         returns (bool)
     {
         feelessTxMode = feelessTxModeEnabled;
         return true;
     }
 
-    function updatePoolTime(uint32 newPooltime, string memory secret)
+    function updatePoolTime(uint32 newPooltime)
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newPooltime)
         returns (bool)
     {
@@ -443,9 +421,9 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function updateVoteThreshold(uint32 newVoteThreshold, string memory secret)
+    function updateVoteThreshold(uint32 newVoteThreshold)
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newVoteThreshold)
         returns (bool)
     {
@@ -453,9 +431,9 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function updateTxFees(uint8 newTxFees, string memory secret)
+    function updateTxFees(uint8 newTxFees)
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newTxFees)
         noPoolInProgress
         returns (bool)
@@ -466,9 +444,9 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function updatePoolBurns(uint8 newPoolBurns, string memory secret)
+    function updatePoolBurns(uint8 newPoolBurns)
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newPoolBurns)
         noPoolInProgress
         returns (bool)
@@ -482,9 +460,9 @@ contract Kandle is Ownable {
         return true;
     }
 
-    function updateRewardsTxFees(uint8 newRewardsTxFees, string memory secret)
+    function updateRewardsTxFees(uint8 newRewardsTxFees)
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newRewardsTxFees)
         noPoolInProgress
         returns (bool)
@@ -499,11 +477,10 @@ contract Kandle is Ownable {
     }
 
     function updateWaxReferenceMultiplier(
-        uint8 newWaxReferenceMultiplier,
-        string memory secret
+        uint8 newWaxReferenceMultiplier
     )
         external
-        onlyOwner(secret)
+        onlyOwner()
         aboveZero(newWaxReferenceMultiplier)
         noPoolInProgress
         returns (bool)
@@ -800,7 +777,7 @@ contract Kandle is Ownable {
         emit Burn(msg.sender, eaterAddress, value);
     }
 
-    function kill(string memory secret) external onlyOwner(secret) {
+    function kill() external onlyOwner() {
         address payable ownerAddress = payable(address(msg.sender));
         selfdestruct(ownerAddress);
     }
